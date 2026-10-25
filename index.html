@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#4f46e5">
-  <meta name="description" content="Seguimiento de hábitos con rachas">
+  <meta name="description" content="Seguimiento de hábitos y tareas con rachas">
   <title>Mis Hábitos</title>
 
   <!-- PWA: datos para instalarla como app -->
@@ -23,14 +23,17 @@
 <body>
 
   <!-- ======================================================
-       PANTALLA 1: HOY (lista de hábitos)
+       PESTAÑA 1: HÁBITOS (lista del día)
        ====================================================== -->
-  <section id="pantalla-hoy" class="pantalla activa">
+  <section id="pantalla-hoy" class="pantalla principal activa">
     <header class="encabezado">
       <div class="encabezado__fila">
-        <p class="encabezado__fecha" id="fecha-hoy"></p>
-        <!-- Aparece solo si el navegador permite instalar la app -->
-        <button class="chip" id="btn-instalar" hidden>Instalar app</button>
+        <p class="encabezado__fecha" data-fecha-hoy></p>
+        <div class="encabezado__acciones">
+          <!-- Aparece solo si el navegador permite instalar la app -->
+          <button class="chip" id="btn-instalar" hidden>Instalar app</button>
+          <button class="boton-volver" data-ajustes aria-label="Ajustes">⚙</button>
+        </div>
       </div>
       <h1>Mis hábitos</h1>
       <p class="encabezado__resumen" id="resumen-dia"></p>
@@ -47,12 +50,34 @@
 
 
   <!-- ======================================================
-       PANTALLA 2: NUEVO HÁBITO (formulario)
+       PESTAÑA 2: TAREAS ÚNICAS
+       ====================================================== -->
+  <section id="pantalla-tareas" class="pantalla principal">
+    <header class="encabezado">
+      <div class="encabezado__fila">
+        <p class="encabezado__fecha" data-fecha-hoy></p>
+        <div class="encabezado__acciones">
+          <button class="boton-volver" data-ajustes aria-label="Ajustes">⚙</button>
+        </div>
+      </div>
+      <h1>Tareas</h1>
+      <p class="encabezado__resumen" id="resumen-tareas"></p>
+    </header>
+
+    <!-- Las tareas se generan desde tareas.js -->
+    <div id="lista-tareas"></div>
+
+    <button class="boton-flotante" id="btn-nueva-tarea" aria-label="Nueva tarea">+</button>
+  </section>
+
+
+  <!-- ======================================================
+       FORMULARIO DE HÁBITO (nuevo y editar)
        ====================================================== -->
   <section id="pantalla-nuevo" class="pantalla">
     <header class="barra-superior">
       <button class="boton-volver" data-volver aria-label="Volver">←</button>
-      <h2>Nuevo hábito</h2>
+      <h2 id="titulo-form">Nuevo hábito</h2>
     </header>
 
     <form id="form-habito" class="formulario" novalidate>
@@ -86,11 +111,12 @@
             <strong>Check</strong>
             <small>Un toque y listo</small>
           </label>
+          <!-- Internamente sigue llamándose "temporizador" para no romper los datos guardados -->
           <label class="opcion-tipo">
             <input type="radio" name="tipo" value="temporizador">
             <span class="opcion-tipo__icono">⏱</span>
-            <strong>Temporizador</strong>
-            <small>Sesiones con descansos</small>
+            <strong>Sesiones</strong>
+            <small>Ej: pomodoros por día</small>
           </label>
           <label class="opcion-tipo">
             <input type="radio" name="tipo" value="contador">
@@ -105,10 +131,11 @@
             <small>No pasarse de un máximo</small>
           </label>
         </div>
+        <p class="ayuda" id="ayuda-tipo-fijo" hidden>El tipo no se puede cambiar después de creado, porque cambiaría el sentido del historial.</p>
 
-        <!-- Configuración del temporizador -->
+        <!-- Configuración de las sesiones -->
         <div class="config-tipo" data-tipo="temporizador" hidden>
-          <label class="campo">Sesiones
+          <label class="campo campo--ancho">Sesiones por día
             <input type="number" name="sesiones" min="1" max="12" value="2" inputmode="numeric">
           </label>
           <label class="campo">Minutos por sesión
@@ -117,11 +144,7 @@
           <label class="campo">Descanso (min)
             <input type="number" name="descanso" min="0" max="60" value="5" inputmode="numeric">
           </label>
-          <label class="casilla">
-            <input type="checkbox" name="descansoAuto" checked>
-            El descanso arranca solo al terminar cada sesión
-          </label>
-          <p class="ayuda">Con descanso en 0, las sesiones van una detrás de otra.</p>
+          <p class="ayuda">Los minutos y el descanso son de referencia, para que sepas cuánto programar en el temporizador del celular. En la app registrás cada sesión con +1.</p>
         </div>
 
         <!-- Configuración del contador -->
@@ -188,12 +211,88 @@
         </div>
       </fieldset>
 
-      <button type="submit" class="boton-principal">Guardar hábito</button>
+      <button type="submit" class="boton-principal" id="btn-guardar-habito">Guardar hábito</button>
     </form>
   </section>
 
+
   <!-- ======================================================
-       PANTALLA 3: DETALLE DE UN HÁBITO (estadísticas + calendario)
+       FORMULARIO DE TAREA (nueva y editar)
+       ====================================================== -->
+  <section id="pantalla-form-tarea" class="pantalla">
+    <header class="barra-superior">
+      <button class="boton-volver" data-volver aria-label="Volver">←</button>
+      <h2 id="titulo-form-tarea">Nueva tarea</h2>
+    </header>
+
+    <form id="form-tarea" class="formulario" novalidate>
+      <fieldset class="bloque">
+        <legend>Datos de la tarea</legend>
+
+        <label class="campo">Nombre
+          <input type="text" name="nombre" maxlength="60" placeholder="Ej: Pagar el monotributo">
+        </label>
+
+        <div class="config-tipo">
+          <label class="campo">Día
+            <input type="date" name="fecha">
+          </label>
+          <label class="campo">Hora (opcional)
+            <input type="time" name="hora">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset class="bloque">
+        <legend>Cómo se cumple</legend>
+
+        <div class="opciones-tipo opciones-tipo--tres">
+          <label class="opcion-tipo">
+            <input type="radio" name="tipoTarea" value="check" checked>
+            <span class="opcion-tipo__icono">✓</span>
+            <strong>Check</strong>
+            <small>Un toque y listo</small>
+          </label>
+          <label class="opcion-tipo">
+            <input type="radio" name="tipoTarea" value="temporizador">
+            <span class="opcion-tipo__icono">⏱</span>
+            <strong>Sesiones</strong>
+            <small>Ej: 4 de 25 min</small>
+          </label>
+          <label class="opcion-tipo">
+            <input type="radio" name="tipoTarea" value="contador">
+            <span class="opcion-tipo__icono">＋</span>
+            <strong>Contador</strong>
+            <small>Llegar a una meta</small>
+          </label>
+        </div>
+
+        <div class="config-tipo" data-tipo-tarea="temporizador" hidden>
+          <label class="campo">Sesiones
+            <input type="number" name="sesiones" min="1" max="20" value="4" inputmode="numeric">
+          </label>
+          <label class="campo">Minutos por sesión
+            <input type="number" name="minutos" min="1" max="180" value="25" inputmode="numeric">
+          </label>
+        </div>
+
+        <div class="config-tipo" data-tipo-tarea="contador" hidden>
+          <label class="campo">Meta
+            <input type="number" name="meta" min="1" max="999" value="10" inputmode="numeric">
+          </label>
+          <label class="campo">Unidad
+            <input type="text" name="unidad" maxlength="15" placeholder="páginas, ejercicios...">
+          </label>
+        </div>
+      </fieldset>
+
+      <button type="submit" class="boton-principal" id="btn-guardar-tarea">Guardar tarea</button>
+    </form>
+  </section>
+
+
+  <!-- ======================================================
+       DETALLE DE UN HÁBITO (estadísticas + calendario)
        ====================================================== -->
   <section id="pantalla-detalle" class="pantalla">
     <header class="barra-superior">
@@ -222,34 +321,53 @@
       </div>
       <p class="ayuda">Tocá un día para corregir lo que registraste (por ejemplo, si te olvidaste de marcarlo).</p>
     </div>
+
+    <button class="boton-secundario" id="detalle-editar">Editar hábito</button>
   </section>
 
 
   <!-- ======================================================
-       PANTALLA 4: CATEGORÍAS
+       AJUSTES: categorías y respaldo
        ====================================================== -->
-  <section id="pantalla-categorias" class="pantalla">
+  <section id="pantalla-ajustes" class="pantalla">
     <header class="barra-superior">
       <button class="boton-volver" data-volver aria-label="Volver">←</button>
-      <h2>Categorías</h2>
+      <h2>Ajustes</h2>
     </header>
 
+    <h3 class="subtitulo">Categorías de hábitos</h3>
     <form class="fila-agregar" id="form-categoria" novalidate>
       <input type="text" name="nombre" maxlength="20" placeholder="Nueva categoría" aria-label="Nombre de la nueva categoría">
       <button type="submit" class="boton-principal">Agregar</button>
     </form>
-
     <ul class="lista-categorias" id="lista-categorias"></ul>
+
+    <h3 class="subtitulo">Respaldo</h3>
+    <div class="bloque">
+      <p class="ayuda" id="info-respaldo"></p>
+      <button class="boton-principal" id="btn-exportar">Exportar respaldo</button>
+      <button class="boton-secundario" id="btn-importar">Importar respaldo</button>
+      <!-- Selector de archivos oculto: lo abre el botón de arriba -->
+      <input type="file" id="archivo-respaldo" accept=".json,application/json" hidden>
+      <p class="ayuda">Exportar descarga un archivo con todos tus hábitos, su historial y tus tareas. Guardalo en Drive o mandátelo por mail. Importar reemplaza todos los datos actuales por los del archivo.</p>
+    </div>
   </section>
 
 
-  <!-- Menú de un hábito (se abre al tocar su nombre) -->
+  <!-- ======================================================
+       BARRA DE PESTAÑAS (solo en las pantallas principales)
+       ====================================================== -->
+  <nav class="pestanas" id="pestanas" aria-label="Secciones">
+    <button class="pestana activa" data-pestana="pantalla-hoy"><span>🔥</span>Hábitos</button>
+    <button class="pestana" data-pestana="pantalla-tareas"><span>☑</span>Tareas</button>
+  </nav>
+
+
+  <!-- Menú inferior (se arma desde JavaScript según qué se tocó) -->
   <div class="hoja" id="hoja" hidden>
     <div class="hoja__panel" role="dialog" aria-labelledby="hoja-titulo">
       <p class="hoja__titulo" id="hoja-titulo"></p>
-      <button class="hoja__boton" id="hoja-detalle">Ver historial y calendario</button>
-      <button class="hoja__boton" id="hoja-restar">Restar 1 al registro de hoy</button>
-      <button class="hoja__boton hoja__boton--peligro" id="hoja-eliminar">Eliminar hábito</button>
+      <div class="hoja__opciones" id="hoja-opciones"></div>
       <button class="hoja__boton" id="hoja-cancelar">Cancelar</button>
     </div>
   </div>
@@ -258,5 +376,6 @@
   <div class="aviso" id="aviso" role="status"></div>
 
   <script src="js/app.js"></script>
+  <script src="js/tareas.js"></script>
 </body>
 </html>

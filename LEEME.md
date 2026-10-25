@@ -1,7 +1,12 @@
 # Mis Hábitos
 
-App de hábitos para el celular (PWA): check, temporizador, contador y límite,
-con frecuencias diaria, días fijos o X veces por semana, rachas y calendario.
+App de hábitos y tareas para el celular (PWA).
+
+- **Hábitos**: check, sesiones, contador y límite, con frecuencias diaria, días fijos
+  o X veces por semana, rachas, calendario y edición.
+- **Tareas únicas**: día, hora opcional, check/sesiones/contador, vencidas, sección Hechas
+  y botón para agregarlas a Google Calendar.
+- **Ajustes**: categorías y respaldo (exportar/importar).
 
 ## Estructura
 
@@ -11,7 +16,8 @@ mis-habitos/
 ├── manifest.json       Nombre, colores e íconos para instalarla
 ├── sw.js               Service worker: funciona sin internet
 ├── css/estilos.css
-├── js/app.js           Toda la lógica
+├── js/app.js           Hábitos, ajustes, respaldo y lo compartido
+├── js/tareas.js        Tareas únicas
 └── iconos/
 ```
 
@@ -39,11 +45,16 @@ El service worker no funciona abriendo `index.html` con doble clic: necesita un 
 
 ## Cuando cambies algo
 
-Subí el número de `VERSION` en `sw.js` (por ejemplo de `'v1'` a `'v2'`) y volvé a subir los archivos.
-Si no, el celular sigue usando los archivos viejos guardados en la caché.
+Subí los archivos nuevos a GitHub y listo. La app abre con la copia guardada y,
+por detrás, descarga lo nuevo: avisa "Hay una versión nueva" y la próxima vez
+que la abras ya la usás. (Si agregás un archivo nuevo, sumalo a la lista
+`ARCHIVOS` de `sw.js` para que funcione sin internet.)
+
+Para subir archivos que van dentro de una carpeta, usá la dirección
+`github.com/TU-USUARIO/mis-habitos/upload/main/NOMBRE-CARPETA`.
 
 ## Ojo con los datos
 
-Los hábitos viven en el navegador del celular. Si desinstalás la app o borrás los datos
-de Chrome, se pierden. La dirección (URL) también importa: los datos de
+Los hábitos y tareas viven en el navegador del celular. Si desinstalás la app o borrás
+los datos de Chrome, se pierden. Hacé un respaldo de vez en cuando desde ⚙ → Exportar respaldo. La dirección (URL) también importa: los datos de
 `localhost` y los de GitHub Pages son independientes.
