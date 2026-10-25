@@ -1,0 +1,445 @@
+/* =========================================================
+   MIS HÁBITOS — Estilos
+   Mobile first: pensado para el celular, centrado en pantallas grandes.
+   ========================================================= */
+
+/* ---------- Variables (tema claro) ---------- */
+:root {
+  --fondo: #f4f5fb;
+  --superficie: #ffffff;
+  --texto: #1f2333;
+  --texto-suave: #6b7085;
+  --borde: #e3e5ef;
+  --primario: #4f46e5;
+  --primario-suave: #eef0ff;
+  --advertencia: #f59e0b;
+  --peligro: #ef4444;
+  --radio: 14px;
+  --sombra: 0 2px 8px rgba(20, 24, 60, 0.06);
+}
+
+/* ---------- Tema oscuro (se activa solo si el celu está en modo oscuro) ---------- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #12131a;
+    --superficie: #1c1e28;
+    --texto: #eceef6;
+    --texto-suave: #9a9fb5;
+    --borde: #2c2f3d;
+    --primario: #818cf8;
+    --primario-suave: #262a45;
+    --sombra: none;
+  }
+}
+
+/* ---------- Base ---------- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button { font: inherit; cursor: pointer; }
+
+:focus-visible,
+label:has(input:focus-visible) {
+  outline: 2px solid var(--primario);
+  outline-offset: 2px;
+}
+
+/* ---------- Pantallas: solo se ve la que tiene .activa ---------- */
+.pantalla {
+  display: none;
+  max-width: 480px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 16px 16px 100px;
+}
+.pantalla.activa { display: block; }
+
+/* =========================================================
+   PANTALLA HOY
+   ========================================================= */
+.encabezado { padding: 8px 0 16px; }
+.encabezado__fila { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.encabezado__fecha { color: var(--texto-suave); font-size: 0.9rem; }
+.encabezado__fecha::first-letter { text-transform: uppercase; }
+.encabezado h1 { font-size: 1.8rem; }
+.encabezado__resumen { color: var(--texto-suave); }
+
+/* Chips de categorías (scroll horizontal si no entran) */
+.filtros {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  scrollbar-width: none;
+}
+.chip {
+  border: 1px solid var(--borde);
+  background: var(--superficie);
+  color: var(--texto);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.chip.activo {
+  background: var(--primario);
+  border-color: var(--primario);
+  color: #fff;
+}
+
+/* Tarjetas de hábitos */
+.lista-habitos { display: flex; flex-direction: column; gap: 10px; }
+
+.habito {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--superficie);
+  border-radius: var(--radio);
+  border-left: 5px solid var(--color-habito);
+  box-shadow: var(--sombra);
+}
+.habito.no-toca { opacity: 0.5; }
+
+.habito__info { flex: 1; min-width: 0; }
+.habito__nombre {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.habito.cumplido .habito__nombre { color: var(--texto-suave); }
+.habito__detalle { font-size: 0.8rem; color: var(--texto-suave); }
+.habito__racha { font-size: 0.8rem; font-weight: 600; color: var(--advertencia); margin-top: 4px; }
+
+/* Barra de progreso */
+.habito__progreso-texto { font-size: 0.8rem; margin-top: 8px; }
+.progreso {
+  height: 6px;
+  margin-top: 4px;
+  background: var(--borde);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progreso__barra {
+  height: 100%;
+  background: var(--color-habito);
+  border-radius: 999px;
+  transition: width 0.3s;
+}
+.progreso--limite .progreso__barra { background: var(--advertencia); }
+.progreso--excedido .progreso__barra { background: var(--peligro); }
+.texto-peligro { color: var(--peligro); font-weight: 600; }
+
+/* Botón de acción redondo (✓, ▶, +1) */
+.accion {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--color-habito);
+  background: transparent;
+  color: var(--color-habito);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.accion.hecho { background: var(--color-habito); color: #fff; }
+.accion:disabled { cursor: default; }
+
+.vacio { text-align: center; color: var(--texto-suave); padding: 40px 0; }
+
+/* Botón flotante "+" (alineado al borde de la columna en pantallas anchas) */
+.boton-flotante {
+  position: fixed;
+  right: max(16px, calc(50% - 224px));
+  bottom: 24px;
+  width: 60px;
+  height: 60px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primario);
+  color: #fff;
+  font-size: 2rem;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+}
+
+/* =========================================================
+   PANTALLA NUEVO HÁBITO
+   ========================================================= */
+.barra-superior { display: flex; align-items: center; gap: 12px; padding: 8px 0 16px; }
+.boton-volver {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: var(--superficie);
+  color: var(--texto);
+  font-size: 1.2rem;
+  box-shadow: var(--sombra);
+}
+
+.formulario { display: flex; flex-direction: column; gap: 16px; }
+
+.bloque {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: none;
+  border-radius: var(--radio);
+  background: var(--superficie);
+  box-shadow: var(--sombra);
+}
+.bloque legend { font-weight: 700; padding: 0; float: left; width: 100%; }
+
+.campo { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; color: var(--texto-suave); }
+.campo--ancho { grid-column: 1 / -1; }
+
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--texto);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+}
+
+/* Selector de colores: radios ocultos con círculos de color */
+.colores { display: flex; flex-wrap: wrap; gap: 10px; }
+.color { position: relative; }
+.color input, .opcion-tipo input, .segmentado input, .dia input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.color span {
+  display: block;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--c);
+  border: 3px solid var(--superficie);
+  box-shadow: 0 0 0 1px var(--borde);
+  cursor: pointer;
+}
+.color input:checked + span { box-shadow: 0 0 0 2px var(--texto); }
+
+/* Tarjetas de tipo de hábito (grilla 2x2) */
+.opciones-tipo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.opcion-tipo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 2px solid var(--borde);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.opcion-tipo:has(input:checked) { border-color: var(--primario); background: var(--primario-suave); }
+.opcion-tipo__icono { font-size: 1.3rem; }
+.opcion-tipo small { font-size: 0.75rem; color: var(--texto-suave); }
+
+/* Zonas de configuración que aparecen según lo elegido */
+.config-tipo,
+.config-frecuencia { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.casilla { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
+.casilla input { width: 18px; height: 18px; accent-color: var(--primario); }
+.ayuda { grid-column: 1 / -1; font-size: 0.8rem; color: var(--texto-suave); }
+
+/* Control segmentado (Diario / Días fijos / Por semana) */
+.segmentado { display: flex; gap: 4px; padding: 4px; background: var(--fondo); border-radius: 10px; }
+.segmentado label {
+  position: relative;
+  flex: 1;
+  padding: 8px 4px;
+  text-align: center;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.segmentado label:has(input:checked) {
+  background: var(--superficie);
+  color: var(--primario);
+  font-weight: 600;
+  box-shadow: var(--sombra);
+}
+
+/* Días de la semana */
+.dias { grid-column: 1 / -1; display: flex; gap: 6px; }
+.dia { position: relative; flex: 1; }
+.dia span {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--borde);
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dia input:checked + span { background: var(--primario); border-color: var(--primario); color: #fff; }
+.atajos { grid-column: 1 / -1; display: flex; gap: 8px; }
+
+.boton-principal {
+  padding: 14px;
+  border: none;
+  border-radius: var(--radio);
+  background: var(--primario);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ---------- Etapa 2: detalles de la lista ---------- */
+.habito__info { cursor: pointer; }
+.habito__racha--apagada { color: var(--texto-suave); font-weight: 500; }
+.habito__record { color: var(--texto-suave); font-weight: 500; }
+.habito__semana { font-size: 0.8rem; color: var(--texto-suave); margin-top: 4px; }
+.vacio .boton-principal { margin-top: 16px; padding: 10px 18px; }
+
+/* ---------- Menú del hábito (hoja que sube desde abajo) ---------- */
+.hoja {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10;
+}
+.hoja__panel {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 16px 24px;
+  background: var(--superficie);
+  border-radius: 20px 20px 0 0;
+}
+.hoja__titulo { font-weight: 700; text-align: center; margin-bottom: 4px; }
+.hoja__boton {
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: var(--fondo);
+  color: var(--texto);
+  font-weight: 600;
+}
+.hoja__boton--peligro { color: var(--peligro); }
+
+/* =========================================================
+   ETAPA 4
+   ========================================================= */
+
+/* Chip para ir a gestionar categorías */
+.chip--gestion { border-style: dashed; color: var(--texto-suave); }
+.chip__cantidad { opacity: 0.7; margin-left: 2px; }
+
+/* ---------- Pantalla de detalle ---------- */
+.detalle__info { color: var(--texto-suave); font-size: 0.9rem; margin: -8px 0 16px; }
+
+.estadisticas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.estadistica {
+  padding: 12px 8px;
+  text-align: center;
+  background: var(--superficie);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+.estadistica strong { display: block; font-size: 1.5rem; color: var(--color-habito); }
+.estadistica span { font-size: 0.75rem; color: var(--texto-suave); }
+
+.calendario__cabecera { display: flex; align-items: center; justify-content: space-between; }
+.calendario__cabecera .boton-volver { box-shadow: none; background: var(--fondo); }
+.calendario__cabecera .boton-volver:disabled { opacity: 0.3; cursor: default; }
+.calendario__titulo { font-weight: 700; }
+.calendario__titulo::first-letter { text-transform: uppercase; }
+
+.calendario__semana,
+.calendario__grilla { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.calendario__semana span { text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--texto-suave); }
+
+.dia-cal {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: var(--fondo);
+  color: var(--texto);
+  font-size: 0.85rem;
+}
+.dia-cal:disabled { cursor: default; }
+.dia-cal--ok      { background: var(--color-habito); color: #fff; font-weight: 700; }
+.dia-cal--parcial { background: color-mix(in srgb, var(--color-habito) 30%, transparent); }
+.dia-cal--mal     { border-color: var(--peligro); color: var(--peligro); }
+.dia-cal--no-toca,
+.dia-cal--fuera,
+.dia-cal--futuro  { opacity: 0.35; }
+.dia-cal--hoy     { border-color: var(--color-habito); }
+
+.leyenda { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.75rem; color: var(--texto-suave); }
+.leyenda span { display: flex; align-items: center; gap: 4px; }
+/* :where() baja la especificidad, así los colores de .dia-cal--ok, etc. ganan */
+:where(.leyenda) i { width: 12px; height: 12px; border-radius: 4px; border: 2px solid transparent; background: var(--fondo); }
+
+/* ---------- Pantalla de categorías ---------- */
+.fila-agregar { display: flex; gap: 8px; margin-bottom: 16px; }
+.fila-agregar input { flex: 1; background: var(--superficie); }
+.fila-agregar .boton-principal { padding: 10px 16px; }
+
+.lista-categorias { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.categoria {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--superficie);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+}
+.categoria__nombre { flex: 1; font-weight: 600; }
+.categoria__cantidad { font-size: 0.8rem; color: var(--texto-suave); }
+.categoria button {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--fondo);
+  color: var(--texto);
+}
+
+/* ---------- Aviso flotante ---------- */
+.aviso {
+  position: fixed;
+  left: 50%;
+  bottom: 100px;
+  max-width: 90%;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--texto);
+  color: var(--fondo);
+  font-size: 0.9rem;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 20px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.aviso.visible { opacity: 1; transform: translate(-50%, 0); }
