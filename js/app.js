@@ -28,7 +28,8 @@ const nombresDias = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
    datos = {
      version: 1,
      categorias: ['Salud', 'Estudio', ...],
-     habitos: [ { id, nombre, categoria, color, tipo, frecuencia, config, creado } ],
+     habitos: [ { id, nombre, categoria, color, tipo, frecuencia, config, creado, inicio, fin } ],
+       (inicio = desde qué día cuenta; fin = último día, o null si es permanente)
      registros: {
        '2026-10-25': { 1730000000000: 1, 1730000000001: 5 },   // id del hábito → valor
      },
@@ -130,6 +131,16 @@ function clavesDeLaSemana(fecha = new Date()) {
 // Guardamos qué día es "hoy" para detectar cuando pasa la medianoche
 let hoy = claveFecha();
 
+// '2026-10-27' → 'mar 27/10'
+function fechaCorta(clave) {
+  const fecha = fechaDesdeClave(clave);
+  const diaSemana = fecha.toLocaleDateString('es-AR', { weekday: 'short' }).replace('.', '');
+  return `${diaSemana} ${fecha.getDate()}/${fecha.getMonth() + 1}`;
+}
+
+// La más chica de dos claves de fecha
+const menorFecha = (a, b) => (a < b ? a : b);
+
 
 /* ---------------------------------------------------------
    5. LEER Y ESCRIBIR REGISTROS DE HÁBITOS
@@ -188,8 +199,24 @@ function consumoLimite(habito) {
   return habito.config.periodo === 'semana' ? valorSemana(habito.id) : valorDia(habito.id);
 }
 
+/* --- Duración del hábito --- */
+
+// Desde cuándo cuenta. Los hábitos creados antes de existir "inicio" usan su fecha de creación.
+const inicioDe = (habito) => habito.inicio || habito.creado;
+
+// Hasta qué día se evalúa: hoy, o el último día si ya terminó
+const ultimoDiaEvaluado = (habito) => (habito.fin ? menorFecha(hoy, habito.fin) : hoy);
+
+// 'proximo' (todavía no empezó) | 'activo' | 'finalizado' (ya pasó su último día)
+function estadoHabito(habito) {
+  if (inicioDe(habito) > hoy) return 'proximo';
+  if (habito.fin && habito.fin < hoy) return 'finalizado';
+  return 'activo';
+}
+
 // ¿El hábito "toca" hoy? (los de días fijos solo tocan esos días)
 function tocaHoy(habito) {
+  if (estadoHabito(habito) !== 'activo') return false;
   if (habito.tipo === 'limite') return true;
   if (habito.frecuencia.modo === 'dias') {
     return habito.frecuencia.dias.includes(new Date().getDay());
@@ -226,11 +253,12 @@ function rachaEnSemanas(habito) {
   return esSemanal(habito) || (habito.tipo === 'limite' && habito.config.periodo === 'semana');
 }
 
-// Etiquetas de cada DÍA, desde la creación hasta hoy
+// Etiquetas de cada DÍA, desde el inicio hasta hoy (o hasta el fin, si ya terminó)
 function estadosPorDia(habito) {
   const estados = [];
+  const hasta = ultimoDiaEvaluado(habito);
   // Las claves 'AAAA-MM-DD' se pueden comparar como texto: '2026-10-24' < '2026-10-25'
-  for (let fecha = fechaDesdeClave(habito.creado); claveFecha(fecha) <= hoy; fecha = sumarDias(fecha, 1)) {
+  for (let fecha = fechaDesdeClave(inicioDe(habito)); claveFecha(fecha) <= hasta; fecha = sumarDias(fecha, 1)) {
     const clave = claveFecha(fecha);
     const esHoy = clave === hoy;
 
@@ -254,16 +282,20 @@ function estadosPorDia(habito) {
   return estados;
 }
 
-// Etiquetas de cada SEMANA (lunes a domingo), desde la creación hasta hoy
+// Etiquetas de cada SEMANA (lunes a domingo), desde el inicio hasta hoy (o hasta el fin)
 function estadosPorSemana(habito) {
   const estados = [];
-  const creado = fechaDesdeClave(habito.creado);
-  const primerLunes = sumarDias(creado, -((creado.getDay() + 6) % 7));
+  const inicio = fechaDesdeClave(inicioDe(habito));
+  const primerLunes = sumarDias(inicio, -((inicio.getDay() + 6) % 7));
+  const hasta = ultimoDiaEvaluado(habito);
 
-  for (let lunes = primerLunes; claveFecha(lunes) <= hoy; lunes = sumarDias(lunes, 7)) {
-    const claves = clavesDeLaSemana(lunes);
+  for (let lunes = primerLunes; claveFecha(lunes) <= hasta; lunes = sumarDias(lunes, 7)) {
+    // Solo miramos los días que están dentro de la duración del hábito
+    const claves = clavesDeLaSemana(lunes).filter(c => c >= inicioDe(habito) && c <= hasta);
     const esActual = claves.includes(hoy);
+    // La primera y la última semana pueden estar incompletas
     const esPrimera = lunes.getTime() === primerLunes.getTime();
+    const esUltima = Boolean(habito.fin) && claves.includes(habito.fin);
 
     if (habito.tipo === 'limite') {
       const total = claves.reduce((suma, clave) => suma + valorDia(habito.id, clave), 0);
@@ -275,9 +307,9 @@ function estadosPorSemana(habito) {
     // X veces por semana
     const hechos = claves.filter(clave => diaCumplido(habito, clave)).length;
     const cumplida = hechos >= habito.frecuencia.veces;
-    // La semana en curso no corta (todavía hay tiempo), y la semana en que
-    // creaste el hábito tampoco, porque quizás la empezaste por la mitad
-    estados.push(cumplida ? 'ok' : (esActual || esPrimera) ? 'nada' : 'mal');
+    // La semana en curso no corta (todavía hay tiempo), y la primera y la
+    // última tampoco, porque pueden estar incompletas
+    estados.push(cumplida ? 'ok' : (esActual || esPrimera || esUltima) ? 'nada' : 'mal');
   }
   return estados;
 }
@@ -518,6 +550,45 @@ function dibujarFiltros() {
     + conHabitos.map(c => chip(c, `${escapar(c)} <span class="chip__cantidad">${cantidadEn(c)}</span>`)).join('');
 }
 
+let finalizadosAbiertos = false; // recuerda si la sección "Finalizados" estaba desplegada
+
+// La tarjeta de un hábito, según si está activo, por empezar o finalizado
+function htmlHabito(h) {
+  const estado = estadoHabito(h);
+  let detalle = `${escapar(h.categoria)} · ${textoFrecuencia(h)}`;
+  let contenido = '';
+
+  if (estado === 'proximo') {
+    detalle += ` · empieza el ${fechaCorta(inicioDe(h))}`;
+  } else if (estado === 'finalizado') {
+    const { mejor } = calcularRachas(h);
+    const unidad = rachaEnSemanas(h) ? 'semanas' : 'días';
+    detalle += ` · terminó el ${fechaCorta(h.fin)}`;
+    if (mejor) contenido = `<p class="habito__racha habito__racha--apagada">Récord: ${mejor} ${unidad}</p>`;
+  } else {
+    if (h.fin) detalle += ` · hasta el ${fechaCorta(h.fin)}`;
+    if (!tocaHoy(h)) detalle += ' · hoy no toca';
+    contenido = htmlProgreso(h) + textoRacha(h);
+  }
+
+  const apagado = estado !== 'activo' || !tocaHoy(h);
+  return `
+    <article class="habito ${estado === 'activo' && estaCumplido(h) ? 'cumplido' : ''} ${apagado ? 'no-toca' : ''}"
+             style="--color-habito:${h.color}">
+      <div class="habito__info" data-menu="${h.id}">
+        <p class="habito__nombre">${escapar(h.nombre)}</p>
+        <p class="habito__detalle">${detalle}</p>
+        ${contenido}
+      </div>
+      ${tocaHoy(h) ? htmlBoton(h) : ''}
+    </article>`;
+}
+
+// Recordamos si "Finalizados" quedó abierta (el evento "toggle" no burbujea: usamos captura)
+lista.addEventListener('toggle', (evento) => {
+  if (evento.target.id === 'seccion-finalizados') finalizadosAbiertos = evento.target.open;
+}, true);
+
 function dibujarLista() {
   // Sin ningún hábito todavía: ofrecemos cargar ejemplos
   if (datos.habitos.length === 0) {
@@ -531,25 +602,36 @@ function dibujarLista() {
   }
 
   const visibles = datos.habitos.filter(h => filtroActual === 'Todas' || h.categoria === filtroActual);
-  const peso = (h) => !tocaHoy(h) ? 2 : estaCumplido(h) ? 1 : 0;
-  visibles.sort((a, b) => peso(a) - peso(b));
 
-  if (visibles.length === 0) {
-    lista.innerHTML = `<p class="vacio">No hay hábitos en esta categoría.</p>`;
-  } else {
-    lista.innerHTML = visibles.map(h => `
-      <article class="habito ${estaCumplido(h) ? 'cumplido' : ''} ${tocaHoy(h) ? '' : 'no-toca'}"
-               style="--color-habito:${h.color}">
-        <div class="habito__info" data-menu="${h.id}">
-          <p class="habito__nombre">${escapar(h.nombre)}</p>
-          <p class="habito__detalle">${escapar(h.categoria)} · ${textoFrecuencia(h)}${tocaHoy(h) ? '' : ' · hoy no toca'}</p>
-          ${htmlProgreso(h)}
-          ${textoRacha(h)}
-        </div>
-        ${tocaHoy(h) ? htmlBoton(h) : ''}
-      </article>`).join('');
+  // Separamos según la duración
+  const activos     = visibles.filter(h => estadoHabito(h) === 'activo');
+  const proximos    = visibles.filter(h => estadoHabito(h) === 'proximo');
+  const finalizados = visibles.filter(h => estadoHabito(h) === 'finalizado');
+
+  // Activos: primero los pendientes de hoy, después los cumplidos, al final los que no tocan
+  const peso = (h) => !tocaHoy(h) ? 2 : estaCumplido(h) ? 1 : 0;
+  activos.sort((a, b) => peso(a) - peso(b));
+  proximos.sort((a, b) => inicioDe(a).localeCompare(inicioDe(b)));   // el que empieza antes, primero
+  finalizados.sort((a, b) => b.fin.localeCompare(a.fin));            // el que terminó último, primero
+
+  let html = activos.map(htmlHabito).join('') + proximos.map(htmlHabito).join('');
+
+  if (activos.length + proximos.length === 0) {
+    html = `<p class="vacio">No hay hábitos activos${filtroActual === 'Todas' ? '' : ' en esta categoría'}.</p>`;
   }
 
+  // Los finalizados van en una sección plegable, como las tareas hechas
+  if (finalizados.length) {
+    html += `
+      <details class="hechas" id="seccion-finalizados" ${finalizadosAbiertos ? 'open' : ''}>
+        <summary>Finalizados (${finalizados.length})</summary>
+        <div class="lista-habitos">${finalizados.map(htmlHabito).join('')}</div>
+      </details>`;
+  }
+
+  lista.innerHTML = html;
+
+  // (tocaHoy ya deja afuera los que no empezaron o terminaron)
   const deHoy = datos.habitos.filter(h => tocaHoy(h) && h.tipo !== 'limite');
   const hechos = deHoy.filter(estaCumplido).length;
   $('#resumen-dia').textContent = deHoy.length ? `${hechos} de ${deHoy.length} cumplidos` : '';
@@ -672,7 +754,7 @@ function cargarEjemplos() {
   // Los ejemplos "se crearon" hace 35 días, para que tengan historia
   const DIAS_DE_HISTORIA = 35;
   const creado = claveFecha(sumarDias(new Date(), -DIAS_DE_HISTORIA));
-  datos.habitos = ejemplos.map((h, i) => ({ id: base + i, creado, ...h }));
+  datos.habitos = ejemplos.map((h, i) => ({ id: base + i, creado, inicio: creado, fin: null, ...h }));
 
   // Inventamos un historial con algunas fallas, para ver rachas cortadas.
   // n = cuántos días atrás. Hoy (n = 0) queda vacío para que lo marques vos.
@@ -799,10 +881,27 @@ function abrirFormularioHabito(habito) {
     }
   }
 
+  // --- Duración ---
+  // El inicio no puede ser en el pasado. Si el hábito ya empezó, queda fijo.
+  const yaEmpezo = Boolean(habito) && inicioDe(habito) <= hoy;
+  formulario.inicio.value = habito ? inicioDe(habito) : hoy;
+  formulario.inicio.min = yaEmpezo ? '' : hoy;
+  formulario.inicio.disabled = yaEmpezo;
+  formulario.fin.value = habito && habito.fin ? habito.fin : '';
+  formulario.fin.min = formulario.inicio.value;
+  $('#ayuda-duracion').textContent = yaEmpezo
+    ? 'Ya empezó, así que el inicio queda fijo. Podés cambiar o quitar la fecha de fin.'
+    : 'Dejá "Termina el" vacío para un hábito permanente.';
+
   actualizarFormulario();
   irA(pantallaNuevo);
   if (!habito) formulario.nombre.focus();
 }
+
+// Si cambia el inicio, el fin no puede quedar antes
+formulario.inicio.addEventListener('change', () => {
+  formulario.fin.min = formulario.inicio.value;
+});
 
 $('#btn-nuevo').addEventListener('click', () => abrirFormularioHabito());
 
@@ -858,12 +957,26 @@ formulario.addEventListener('submit', (evento) => {
     }
   }
 
+  // Duración (un campo deshabilitado igual se puede leer con .value)
+  const inicio = formulario.inicio.value || hoy;
+  const fin = formulario.fin.value || null;
+  if (!formulario.inicio.disabled && inicio < hoy) {
+    avisar('La fecha de inicio no puede ser en el pasado');
+    return;
+  }
+  if (fin && fin < inicio) {
+    avisar('La fecha de fin no puede ser anterior al inicio');
+    return;
+  }
+
   const campos = {
     nombre,
     categoria: formulario.categoria.value,
     color: formulario.color.value,
     frecuencia,
-    config
+    config,
+    inicio,
+    fin
   };
 
   if (editandoHabitoId) {
@@ -901,7 +1014,7 @@ $('#detalle-editar').addEventListener('click', () => abrirFormularioHabito(detal
 // Cómo quedó un día puntual, para pintarlo en el calendario
 function estadoDelDia(habito, clave) {
   if (clave > hoy) return 'futuro';
-  if (clave < habito.creado) return 'fuera';
+  if (clave < inicioDe(habito) || (habito.fin && clave > habito.fin)) return 'fuera';
 
   const fecha = fechaDesdeClave(clave);
   const valor = valorDia(habito.id, clave);
@@ -909,7 +1022,9 @@ function estadoDelDia(habito, clave) {
   if (habito.tipo === 'limite') {
     // En los límites semanales, un día queda "mal" si su semana se pasó
     const consumo = habito.config.periodo === 'semana'
-      ? clavesDeLaSemana(fecha).reduce((suma, c) => suma + valorDia(habito.id, c), 0)
+      ? clavesDeLaSemana(fecha)
+          .filter(c => c >= inicioDe(habito) && (!habito.fin || c <= habito.fin))
+          .reduce((suma, c) => suma + valorDia(habito.id, c), 0)
       : valor;
     if (consumo > habito.config.maximo) return 'mal';
     return clave === hoy ? 'hoy' : 'ok';
@@ -930,13 +1045,16 @@ function dibujarDetalle() {
   pantallaDetalle.style.setProperty('--color-habito', h.color);
 
   $('#detalle-nombre').textContent = h.nombre;
-  $('#detalle-info').textContent = `${h.categoria} · ${textoFrecuencia(h)}`;
+  const periodo = h.fin
+    ? `del ${fechaCorta(inicioDe(h))} al ${fechaCorta(h.fin)}`
+    : `desde el ${fechaCorta(inicioDe(h))}`;
+  $('#detalle-info').textContent = `${h.categoria} · ${textoFrecuencia(h)} · ${periodo}`;
 
   // --- Estadísticas ---
   const { actual, mejor } = calcularRachas(h);
   const unidad = rachaEnSemanas(h) ? 'semanas' : 'días';
   let diasOk = 0;
-  for (let f = fechaDesdeClave(h.creado); claveFecha(f) <= hoy; f = sumarDias(f, 1)) {
+  for (let f = fechaDesdeClave(inicioDe(h)); claveFecha(f) <= ultimoDiaEvaluado(h); f = sumarDias(f, 1)) {
     if (estadoDelDia(h, claveFecha(f)) === 'ok') diasOk++;
   }
   const textoOk = h.tipo === 'limite' ? 'días dentro del límite' : 'días cumplidos';
@@ -964,9 +1082,9 @@ function dibujarDetalle() {
   }
   grilla.innerHTML = html;
 
-  // No se puede ir antes del mes de creación ni después del mes actual
+  // No se puede ir antes del mes de inicio ni después del mes actual
   const claveMes = claveFecha(detalle.mes).slice(0, 7); // '2026-10'
-  $('#mes-anterior').disabled = claveMes <= h.creado.slice(0, 7);
+  $('#mes-anterior').disabled = claveMes <= inicioDe(h).slice(0, 7);
   $('#mes-siguiente').disabled = claveMes >= hoy.slice(0, 7);
 }
 
