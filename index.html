@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="description" content="Seguimiento de hábitos con rachas">
+  <title>Mis Hábitos</title>
+
+  <!-- PWA: datos para instalarla como app -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="iconos/favicon.png">
+
+  <!-- iPhone: Safari no lee todo del manifest, necesita estas etiquetas -->
+  <link rel="apple-touch-icon" href="iconos/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Hábitos">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+
+  <!-- ======================================================
+       PANTALLA 1: HOY (lista de hábitos)
+       ====================================================== -->
+  <section id="pantalla-hoy" class="pantalla activa">
+    <header class="encabezado">
+      <div class="encabezado__fila">
+        <p class="encabezado__fecha" id="fecha-hoy"></p>
+        <!-- Aparece solo si el navegador permite instalar la app -->
+        <button class="chip" id="btn-instalar" hidden>Instalar app</button>
+      </div>
+      <h1>Mis hábitos</h1>
+      <p class="encabezado__resumen" id="resumen-dia"></p>
+    </header>
+
+    <!-- Los chips de categorías se generan desde app.js -->
+    <nav class="filtros" id="filtros" aria-label="Filtrar por categoría"></nav>
+
+    <!-- Las tarjetas de hábitos se generan desde app.js -->
+    <div class="lista-habitos" id="lista-habitos"></div>
+
+    <button class="boton-flotante" id="btn-nuevo" aria-label="Nuevo hábito">+</button>
+  </section>
+
+
+  <!-- ======================================================
+       PANTALLA 2: NUEVO HÁBITO (formulario)
+       ====================================================== -->
+  <section id="pantalla-nuevo" class="pantalla">
+    <header class="barra-superior">
+      <button class="boton-volver" data-volver aria-label="Volver">←</button>
+      <h2>Nuevo hábito</h2>
+    </header>
+
+    <form id="form-habito" class="formulario" novalidate>
+
+      <!-- ---------- Datos básicos ---------- -->
+      <fieldset class="bloque">
+        <legend>Datos básicos</legend>
+
+        <label class="campo">Nombre
+          <input type="text" name="nombre" maxlength="40" placeholder="Ej: Lavarme los dientes">
+        </label>
+
+        <label class="campo">Categoría
+          <select name="categoria" id="select-categoria"></select>
+        </label>
+
+        <div class="campo">
+          <span>Color</span>
+          <div class="colores" id="selector-colores"></div>
+        </div>
+      </fieldset>
+
+      <!-- ---------- Tipo de hábito ---------- -->
+      <fieldset class="bloque">
+        <legend>Tipo de hábito</legend>
+
+        <div class="opciones-tipo">
+          <label class="opcion-tipo">
+            <input type="radio" name="tipo" value="check" checked>
+            <span class="opcion-tipo__icono">✓</span>
+            <strong>Check</strong>
+            <small>Un toque y listo</small>
+          </label>
+          <label class="opcion-tipo">
+            <input type="radio" name="tipo" value="temporizador">
+            <span class="opcion-tipo__icono">⏱</span>
+            <strong>Temporizador</strong>
+            <small>Sesiones con descansos</small>
+          </label>
+          <label class="opcion-tipo">
+            <input type="radio" name="tipo" value="contador">
+            <span class="opcion-tipo__icono">＋</span>
+            <strong>Contador</strong>
+            <small>Llegar a una meta</small>
+          </label>
+          <label class="opcion-tipo">
+            <input type="radio" name="tipo" value="limite">
+            <span class="opcion-tipo__icono">⛔</span>
+            <strong>Límite</strong>
+            <small>No pasarse de un máximo</small>
+          </label>
+        </div>
+
+        <!-- Configuración del temporizador -->
+        <div class="config-tipo" data-tipo="temporizador" hidden>
+          <label class="campo">Sesiones
+            <input type="number" name="sesiones" min="1" max="12" value="2" inputmode="numeric">
+          </label>
+          <label class="campo">Minutos por sesión
+            <input type="number" name="minutos" min="1" max="180" value="25" inputmode="numeric">
+          </label>
+          <label class="campo">Descanso (min)
+            <input type="number" name="descanso" min="0" max="60" value="5" inputmode="numeric">
+          </label>
+          <label class="casilla">
+            <input type="checkbox" name="descansoAuto" checked>
+            El descanso arranca solo al terminar cada sesión
+          </label>
+          <p class="ayuda">Con descanso en 0, las sesiones van una detrás de otra.</p>
+        </div>
+
+        <!-- Configuración del contador -->
+        <div class="config-tipo" data-tipo="contador" hidden>
+          <label class="campo">Meta por día
+            <input type="number" name="meta" min="1" max="999" value="8" inputmode="numeric">
+          </label>
+          <label class="campo">Unidad
+            <input type="text" name="unidadContador" maxlength="15" placeholder="vasos, páginas...">
+          </label>
+        </div>
+
+        <!-- Configuración del límite -->
+        <div class="config-tipo" data-tipo="limite" hidden>
+          <label class="campo">Máximo
+            <input type="number" name="maximo" min="0" max="999" value="3" inputmode="numeric">
+          </label>
+          <label class="campo">Unidad
+            <input type="text" name="unidadLimite" maxlength="15" placeholder="cafés, cigarrillos...">
+          </label>
+          <label class="campo campo--ancho">Período
+            <select name="periodo">
+              <option value="dia">Por día</option>
+              <option value="semana">Por semana</option>
+            </select>
+          </label>
+          <p class="ayuda">Con máximo 0 sirve para dejar algo: la racha cuenta los días (o semanas) sin hacerlo.</p>
+        </div>
+      </fieldset>
+
+      <!-- ---------- Frecuencia (no aplica al tipo Límite) ---------- -->
+      <fieldset class="bloque" id="bloque-frecuencia">
+        <legend>Frecuencia</legend>
+
+        <div class="segmentado">
+          <label><input type="radio" name="frecuencia" value="diario" checked>Diario</label>
+          <label><input type="radio" name="frecuencia" value="dias">Días fijos</label>
+          <label><input type="radio" name="frecuencia" value="semanal">Por semana</label>
+        </div>
+
+        <!-- Días fijos. El value coincide con getDay() de JavaScript: 0 = domingo -->
+        <div class="config-frecuencia" data-frecuencia="dias" hidden>
+          <div class="dias">
+            <label class="dia"><input type="checkbox" name="dias" value="1"><span>L</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="2"><span>M</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="3"><span>X</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="4"><span>J</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="5"><span>V</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="6"><span>S</span></label>
+            <label class="dia"><input type="checkbox" name="dias" value="0"><span>D</span></label>
+          </div>
+          <div class="atajos">
+            <button type="button" class="chip" data-dias="1,2,3,4,5">Lunes a viernes</button>
+            <button type="button" class="chip" data-dias="6,0">Fin de semana</button>
+          </div>
+        </div>
+
+        <!-- X veces por semana -->
+        <div class="config-frecuencia" data-frecuencia="semanal" hidden>
+          <label class="campo campo--ancho">Veces por semana
+            <input type="number" name="veces" min="1" max="7" value="1" inputmode="numeric">
+          </label>
+          <p class="ayuda">Vale cualquier día de la semana. La racha se cuenta en semanas.</p>
+        </div>
+      </fieldset>
+
+      <button type="submit" class="boton-principal">Guardar hábito</button>
+    </form>
+  </section>
+
+  <!-- ======================================================
+       PANTALLA 3: DETALLE DE UN HÁBITO (estadísticas + calendario)
+       ====================================================== -->
+  <section id="pantalla-detalle" class="pantalla">
+    <header class="barra-superior">
+      <button class="boton-volver" data-volver aria-label="Volver">←</button>
+      <h2 id="detalle-nombre"></h2>
+    </header>
+    <p class="detalle__info" id="detalle-info"></p>
+
+    <div class="estadisticas" id="detalle-estadisticas"></div>
+
+    <div class="bloque calendario" id="calendario-bloque">
+      <div class="calendario__cabecera">
+        <button class="boton-volver" id="mes-anterior" aria-label="Mes anterior">‹</button>
+        <p class="calendario__titulo" id="mes-titulo"></p>
+        <button class="boton-volver" id="mes-siguiente" aria-label="Mes siguiente">›</button>
+      </div>
+      <div class="calendario__semana">
+        <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+      </div>
+      <div class="calendario__grilla" id="calendario"></div>
+      <div class="leyenda">
+        <span><i class="dia-cal--ok"></i>Cumplido</span>
+        <span><i class="dia-cal--parcial"></i>A medias</span>
+        <span><i class="dia-cal--mal"></i>No cumplido</span>
+        <span><i class="dia-cal--no-toca"></i>No toca</span>
+      </div>
+      <p class="ayuda">Tocá un día para corregir lo que registraste (por ejemplo, si te olvidaste de marcarlo).</p>
+    </div>
+  </section>
+
+
+  <!-- ======================================================
+       PANTALLA 4: CATEGORÍAS
+       ====================================================== -->
+  <section id="pantalla-categorias" class="pantalla">
+    <header class="barra-superior">
+      <button class="boton-volver" data-volver aria-label="Volver">←</button>
+      <h2>Categorías</h2>
+    </header>
+
+    <form class="fila-agregar" id="form-categoria" novalidate>
+      <input type="text" name="nombre" maxlength="20" placeholder="Nueva categoría" aria-label="Nombre de la nueva categoría">
+      <button type="submit" class="boton-principal">Agregar</button>
+    </form>
+
+    <ul class="lista-categorias" id="lista-categorias"></ul>
+  </section>
+
+
+  <!-- Menú de un hábito (se abre al tocar su nombre) -->
+  <div class="hoja" id="hoja" hidden>
+    <div class="hoja__panel" role="dialog" aria-labelledby="hoja-titulo">
+      <p class="hoja__titulo" id="hoja-titulo"></p>
+      <button class="hoja__boton" id="hoja-detalle">Ver historial y calendario</button>
+      <button class="hoja__boton" id="hoja-restar">Restar 1 al registro de hoy</button>
+      <button class="hoja__boton hoja__boton--peligro" id="hoja-eliminar">Eliminar hábito</button>
+      <button class="hoja__boton" id="hoja-cancelar">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- Mensajito flotante para avisos -->
+  <div class="aviso" id="aviso" role="status"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
