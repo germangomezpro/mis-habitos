@@ -60,6 +60,8 @@ label:has(input:focus-visible) {
   margin: 0 auto;
   padding: 16px 16px 100px;
 }
+/* Las pantallas principales dejan lugar abajo para el botón + y la barra de pestañas */
+.pantalla.principal { padding-bottom: 170px; }
 .pantalla.activa { display: block; }
 
 /* =========================================================
@@ -163,7 +165,7 @@ label:has(input:focus-visible) {
 .boton-flotante {
   position: fixed;
   right: max(16px, calc(50% - 224px));
-  bottom: 24px;
+  bottom: 88px; /* arriba de la barra de pestañas */
   width: 60px;
   height: 60px;
   border: none;
@@ -209,6 +211,8 @@ label:has(input:focus-visible) {
 
 input[type="text"],
 input[type="number"],
+input[type="date"],
+input[type="time"],
 select {
   width: 100%;
   padding: 10px 12px;
@@ -427,9 +431,10 @@ select {
 
 /* ---------- Aviso flotante ---------- */
 .aviso {
+  z-index: 20;
   position: fixed;
   left: 50%;
-  bottom: 100px;
+  bottom: 160px;
   max-width: 90%;
   padding: 10px 16px;
   border-radius: 10px;
@@ -443,3 +448,86 @@ select {
   transition: opacity 0.25s, transform 0.25s;
 }
 .aviso.visible { opacity: 1; transform: translate(-50%, 0); }
+
+/* =========================================================
+   VERSIÓN 2: pestañas, tareas, edición y respaldo
+   ========================================================= */
+
+.encabezado__acciones { display: flex; align-items: center; gap: 8px; }
+
+/* Barra de pestañas fija abajo */
+.pestanas {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  background: var(--superficie);
+  border-top: 1px solid var(--borde);
+  padding-bottom: env(safe-area-inset-bottom); /* espacio para la barra de gestos del celu */
+}
+.pestana {
+  flex: 1;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 10px;
+  border: none;
+  background: none;
+  color: var(--texto-suave);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pestana span { font-size: 1.2rem; filter: grayscale(1); opacity: 0.6; }
+.pestana.activa { color: var(--primario); }
+.pestana.activa span { filter: none; opacity: 1; }
+
+/* Títulos de sección */
+.subtitulo { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--texto-suave); margin: 20px 0 10px; }
+.subtitulo--peligro { color: var(--peligro); }
+#lista-tareas > .subtitulo:first-child { margin-top: 0; }
+
+/* Tareas */
+.tarea--hecha .habito__nombre { text-decoration: line-through; }
+
+.hechas { margin-top: 20px; }
+.hechas summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--texto-suave);
+}
+.hechas .boton-secundario { margin-top: 12px; width: 100%; }
+
+/* Botón secundario (con borde, sin relleno) */
+.boton-secundario {
+  padding: 12px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie);
+  color: var(--texto);
+  font-weight: 600;
+}
+#detalle-editar { width: 100%; margin-top: 16px; }
+
+/* Formulario de tarea: tres opciones en fila */
+.opciones-tipo--tres { grid-template-columns: repeat(3, 1fr); }
+.opciones-tipo--tres .opcion-tipo { padding: 10px 8px; }
+
+/* Al editar un hábito, los tipos que no se pueden elegir se ven apagados */
+.opcion-tipo:has(input:disabled) { cursor: default; }
+.opcion-tipo:has(input:disabled:not(:checked)) { opacity: 0.4; }
+
+/* Menú inferior con opciones generadas */
+.hoja__opciones { display: flex; flex-direction: column; gap: 8px; }
+
+/* Ajustes */
+#pantalla-ajustes .subtitulo:first-of-type { margin-top: 0; }
+#pantalla-ajustes .bloque { gap: 10px; }
