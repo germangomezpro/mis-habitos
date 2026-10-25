@@ -1,8 +1,7 @@
 /* =========================================================
    MIS HÁBITOS — app.js
-   ETAPA 5 (PWA instalable y sin internet): los hábitos y el historial se guardan en el celular
-   (localStorage); el progreso y las rachas se calculan a partir
-   del historial. Categorías propias, filtros y calendario por hábito.
+   Hábitos, cosas compartidas (datos, fechas, menú, avisos),
+   ajustes, respaldo y PWA. Las tareas únicas están en tareas.js.
    ========================================================= */
 
 
@@ -11,7 +10,6 @@
    --------------------------------------------------------- */
 
 // Nombre con el que se guardan los datos en el navegador.
-// El "v1" nos permite cambiar el formato en el futuro sin romper nada.
 const CLAVE_GUARDADO = 'misHabitos.v1';
 
 const CATEGORIAS_INICIALES = ['Salud', 'Estudio', 'Trabajo', 'Personal'];
@@ -33,13 +31,14 @@ const nombresDias = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
      habitos: [ { id, nombre, categoria, color, tipo, frecuencia, config, creado } ],
      registros: {
        '2026-10-25': { 1730000000000: 1, 1730000000001: 5 },   // id del hábito → valor
-       '2026-10-26': { ... }
-     }
+     },
+     tareas: [ ... ],          // ver tareas.js
+     ultimoRespaldo: null      // fecha del último "Exportar respaldo"
    }
 
    El "valor" de un día significa:
      - check:        1 = hecho
-     - temporizador: cantidad de sesiones completadas
+     - temporizador: cantidad de sesiones hechas (en pantalla se llama "Sesiones")
      - contador:     cuánto sumaste (vasos, páginas...)
      - límite:       cuántas veces lo hiciste
 
@@ -50,7 +49,6 @@ const nombresDias = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
 
 let datos = cargarDatos();
 let filtroActual = 'Todas';
-let habitoDelMenu = null; // hábito abierto en el menú inferior
 
 
 /* ---------------------------------------------------------
@@ -58,16 +56,26 @@ let habitoDelMenu = null; // hábito abierto en el menú inferior
    --------------------------------------------------------- */
 
 function datosVacios() {
-  return { version: 1, categorias: [...CATEGORIAS_INICIALES], habitos: [], registros: {} };
+  return {
+    version: 1,
+    categorias: [...CATEGORIAS_INICIALES],
+    habitos: [],
+    registros: {},
+    tareas: [],
+    ultimoRespaldo: null
+  };
+}
+
+// Completa lo que falte (por ejemplo, datos guardados antes de que existieran las tareas)
+function normalizarDatos(leidos) {
+  return { ...datosVacios(), ...leidos };
 }
 
 function cargarDatos() {
   try {
     const texto = localStorage.getItem(CLAVE_GUARDADO);
-    if (!texto) return datosVacios();      // primera vez que se abre la app
-    const leidos = JSON.parse(texto);      // texto → objeto
-    // Nos aseguramos de que estén todas las partes
-    return { ...datosVacios(), ...leidos };
+    if (!texto) return datosVacios();          // primera vez que se abre la app
+    return normalizarDatos(JSON.parse(texto)); // texto → objeto
   } catch (error) {
     console.error('No se pudieron leer los datos guardados', error);
     return datosVacios();
@@ -99,18 +107,23 @@ function claveFecha(fecha = new Date()) {
   return `${anio}-${mes}-${dia}`;
 }
 
-// Las 7 claves de la semana actual, de lunes a domingo
-function clavesDeLaSemana(fecha = new Date()) {
-  const lunes = new Date(fecha);
-  const desdeLunes = (fecha.getDay() + 6) % 7; // lunes=0 ... domingo=6
-  lunes.setDate(fecha.getDate() - desdeLunes);
+// '2026-10-25' → Date (en hora local)
+function fechaDesdeClave(clave) {
+  const [anio, mes, dia] = clave.split('-').map(Number);
+  return new Date(anio, mes - 1, dia);
+}
 
+function sumarDias(fecha, cantidad) {
+  const nueva = new Date(fecha);
+  nueva.setDate(nueva.getDate() + cantidad);
+  return nueva;
+}
+
+// Las 7 claves de la semana de una fecha, de lunes a domingo
+function clavesDeLaSemana(fecha = new Date()) {
+  const lunes = sumarDias(fecha, -((fecha.getDay() + 6) % 7)); // lunes=0 ... domingo=6
   const claves = [];
-  for (let i = 0; i < 7; i++) {
-    const dia = new Date(lunes);
-    dia.setDate(lunes.getDate() + i);
-    claves.push(claveFecha(dia));
-  }
+  for (let i = 0; i < 7; i++) claves.push(claveFecha(sumarDias(lunes, i)));
   return claves;
 }
 
@@ -119,7 +132,7 @@ let hoy = claveFecha();
 
 
 /* ---------------------------------------------------------
-   5. LEER Y ESCRIBIR REGISTROS
+   5. LEER Y ESCRIBIR REGISTROS DE HÁBITOS
    --------------------------------------------------------- */
 
 // Valor de un hábito en un día (0 si no hay nada)
@@ -140,7 +153,7 @@ function ponerValor(id, valor, clave = hoy) {
   guardarDatos();
 }
 
-// Suma de los valores de toda la semana (para límites semanales)
+// Suma de los valores de toda la semana actual (para límites semanales)
 function valorSemana(id) {
   return clavesDeLaSemana().reduce((total, clave) => total + valorDia(id, clave), 0);
 }
@@ -150,10 +163,11 @@ function valorSemana(id) {
    6. LÓGICA DE CUMPLIMIENTO
    --------------------------------------------------------- */
 
-// Cuánto hay que hacer en UN día para que ese día cuente como hecho
-function metaDiaria(habito) {
-  if (habito.tipo === 'temporizador') return habito.config.sesiones;
-  if (habito.tipo === 'contador') return habito.config.meta;
+// Cuánto hay que hacer en UN día para que ese día cuente como hecho.
+// (tareas.js también la usa: las tareas tienen los mismos tipos y config)
+function metaDiaria(item) {
+  if (item.tipo === 'temporizador') return item.config.sesiones;
+  if (item.tipo === 'contador') return item.config.meta;
   return 1; // check
 }
 
@@ -192,7 +206,7 @@ function estaCumplido(habito) {
 
 
 /* ---------------------------------------------------------
-   6 bis. RACHAS
+   7. RACHAS
    ---------------------------------------------------------
    Recorremos la historia del hábito desde que se creó hasta hoy,
    período por período (días o semanas, según el hábito), y a cada
@@ -206,18 +220,6 @@ function estaCumplido(habito) {
    Con esa lista, la racha actual es la seguidilla de 'ok' al final,
    y la mejor racha es la seguidilla más larga de toda la lista.
    --------------------------------------------------------- */
-
-// '2026-10-25' → Date (en hora local)
-function fechaDesdeClave(clave) {
-  const [anio, mes, dia] = clave.split('-').map(Number);
-  return new Date(anio, mes - 1, dia);
-}
-
-function sumarDias(fecha, cantidad) {
-  const nueva = new Date(fecha);
-  nueva.setDate(nueva.getDate() + cantidad);
-  return nueva;
-}
 
 // ¿La racha de este hábito se cuenta en semanas?
 function rachaEnSemanas(habito) {
@@ -312,22 +314,125 @@ function textoRacha(habito) {
 
 
 /* ---------------------------------------------------------
-   7. ELEMENTOS DEL HTML
+   8. ELEMENTOS DEL HTML Y AYUDAS GENERALES
    --------------------------------------------------------- */
 const $ = (selector) => document.querySelector(selector);
 
-const pantallaHoy   = $('#pantalla-hoy');
-const pantallaNuevo = $('#pantalla-nuevo');
-const pantallaDetalle    = $('#pantalla-detalle');
-const pantallaCategorias = $('#pantalla-categorias');
-const lista         = $('#lista-habitos');
-const filtros       = $('#filtros');
-const formulario    = $('#form-habito');
-const hoja          = $('#hoja');
+const pantallaHoy     = $('#pantalla-hoy');
+const pantallaNuevo   = $('#pantalla-nuevo');
+const pantallaDetalle = $('#pantalla-detalle');
+const pantallaAjustes = $('#pantalla-ajustes');
+const lista           = $('#lista-habitos');
+const filtros         = $('#filtros');
+const formulario      = $('#form-habito');
+
+// Evita que un texto con < o > se interprete como HTML (como htmlspecialchars en PHP)
+function escapar(texto) {
+  const div = document.createElement('div');
+  div.textContent = texto;
+  return div.innerHTML;
+}
+
+// Muestra un aviso abajo durante unos segundos
+function avisar(mensaje, segundos = 2) {
+  const aviso = $('#aviso');
+  aviso.textContent = mensaje;
+  aviso.classList.add('visible');
+  clearTimeout(avisar.timer);
+  avisar.timer = setTimeout(() => aviso.classList.remove('visible'), segundos * 1000);
+}
+
+// Barra de progreso
+function barra(porcentaje, clases = '') {
+  return `<div class="progreso ${clases}"><div class="progreso__barra" style="width:${porcentaje}%"></div></div>`;
+}
 
 
 /* ---------------------------------------------------------
-   8. TEXTOS Y PEDACITOS DE HTML
+   9. NAVEGACIÓN: pantallas y pestañas
+   --------------------------------------------------------- */
+
+// La pestaña principal en la que estás (Hábitos o Tareas).
+// Los botones "←" vuelven a esta.
+let pestanaActual = pantallaHoy;
+
+function irA(pantalla) {
+  document.querySelectorAll('.pantalla').forEach(p => p.classList.remove('activa'));
+  pantalla.classList.add('activa');
+
+  // La barra de pestañas solo se ve en las pantallas principales
+  const esPrincipal = pantalla.classList.contains('principal');
+  $('#pestanas').hidden = !esPrincipal;
+  if (esPrincipal) {
+    pestanaActual = pantalla;
+    document.querySelectorAll('.pestana').forEach(b => {
+      b.classList.toggle('activa', b.dataset.pestana === pantalla.id);
+    });
+  }
+  window.scrollTo(0, 0);
+}
+
+$('#pestanas').addEventListener('click', (evento) => {
+  const boton = evento.target.closest('.pestana');
+  if (!boton) return;
+  dibujarTodo();
+  irA(document.getElementById(boton.dataset.pestana));
+});
+
+// Todos los botones "←" vuelven a la pestaña en la que estabas, actualizada
+document.querySelectorAll('[data-volver]').forEach(boton => {
+  boton.addEventListener('click', () => {
+    dibujarTodo();
+    irA(pestanaActual);
+  });
+});
+
+// Botones ⚙ de ambas pestañas
+document.querySelectorAll('[data-ajustes]').forEach(boton => {
+  boton.addEventListener('click', abrirAjustes);
+});
+
+
+/* ---------------------------------------------------------
+   10. MENÚ INFERIOR (lo usan hábitos y tareas)
+   ---------------------------------------------------------
+   abrirMenu('Título', [
+     { texto: 'Editar', accion: () => {...} },
+     { texto: 'Eliminar', accion: () => {...}, peligro: true }
+   ])
+   --------------------------------------------------------- */
+const hoja = $('#hoja');
+let opcionesMenu = [];
+
+function abrirMenu(titulo, opciones) {
+  opcionesMenu = opciones;
+  $('#hoja-titulo').textContent = titulo;
+  $('#hoja-opciones').innerHTML = opciones.map((o, i) =>
+    `<button class="hoja__boton ${o.peligro ? 'hoja__boton--peligro' : ''}" data-opcion="${i}">${escapar(o.texto)}</button>`
+  ).join('');
+  hoja.hidden = false;
+}
+
+function cerrarMenu() {
+  hoja.hidden = true;
+}
+
+$('#hoja-opciones').addEventListener('click', (evento) => {
+  const boton = evento.target.closest('[data-opcion]');
+  if (!boton) return;
+  const opcion = opcionesMenu[boton.dataset.opcion];
+  cerrarMenu();
+  opcion.accion();
+});
+
+$('#hoja-cancelar').addEventListener('click', cerrarMenu);
+hoja.addEventListener('click', (evento) => {
+  if (evento.target === hoja) cerrarMenu(); // tocar el fondo oscuro también cierra
+});
+
+
+/* ---------------------------------------------------------
+   11. DIBUJAR LA PESTAÑA HÁBITOS
    --------------------------------------------------------- */
 
 function textoFrecuencia(habito) {
@@ -341,17 +446,13 @@ function textoFrecuencia(habito) {
   return orden.filter(d => f.dias.includes(d)).map(d => nombresDias[d]).join(' ');
 }
 
-function barra(porcentaje, clases = '') {
-  return `<div class="progreso ${clases}"><div class="progreso__barra" style="width:${porcentaje}%"></div></div>`;
-}
-
 function htmlProgreso(habito) {
   const { tipo, config } = habito;
   const valor = valorDia(habito.id);
   let html = '';
 
   if (tipo === 'temporizador') {
-    html = `<p class="habito__progreso-texto">Hoy: ${valor} de ${config.sesiones} sesiones · ${config.minutos} min</p>`
+    html = `<p class="habito__progreso-texto">Hoy: ${valor} de ${config.sesiones} sesiones de ${config.minutos} min</p>`
          + barra(Math.min(100, valor / config.sesiones * 100));
   }
 
@@ -383,42 +484,21 @@ function htmlProgreso(habito) {
 
 function htmlBoton(habito) {
   const hechoHoy = habito.tipo !== 'limite' && diaCumplido(habito);
-  switch (habito.tipo) {
-    case 'check':
-      return `<button class="accion ${hechoHoy ? 'hecho' : ''}" data-id="${habito.id}"
-                aria-label="${hechoHoy ? 'Desmarcar' : 'Marcar como hecho'}">✓</button>`;
-    case 'temporizador':
-      return hechoHoy
-        ? `<button class="accion hecho" disabled aria-label="Completado hoy">✓</button>`
-        : `<button class="accion" data-id="${habito.id}" aria-label="Iniciar sesión">▶</button>`;
-    case 'contador':
-    case 'limite':
-      return `<button class="accion ${hechoHoy ? 'hecho' : ''}" data-id="${habito.id}" aria-label="Sumar uno">+1</button>`;
+  if (habito.tipo === 'check') {
+    return `<button class="accion ${hechoHoy ? 'hecho' : ''}" data-id="${habito.id}"
+              aria-label="${hechoHoy ? 'Desmarcar' : 'Marcar como hecho'}">✓</button>`;
   }
+  if (habito.tipo === 'temporizador' && hechoHoy) {
+    return `<button class="accion hecho" disabled aria-label="Completado hoy">✓</button>`;
+  }
+  // Sesiones, contador y límite: se suman de a uno
+  return `<button class="accion ${hechoHoy ? 'hecho' : ''}" data-id="${habito.id}" aria-label="Sumar uno">+1</button>`;
 }
-
-function escapar(texto) {
-  const div = document.createElement('div');
-  div.textContent = texto;
-  return div.innerHTML;
-}
-
-function avisar(mensaje) {
-  const aviso = $('#aviso');
-  aviso.textContent = mensaje;
-  aviso.classList.add('visible');
-  clearTimeout(avisar.timer);
-  avisar.timer = setTimeout(() => aviso.classList.remove('visible'), 2000);
-}
-
-
-/* ---------------------------------------------------------
-   9. DIBUJAR LA PANTALLA "HOY"
-   --------------------------------------------------------- */
 
 function mostrarFecha() {
   const opciones = { weekday: 'long', day: 'numeric', month: 'long' };
-  $('#fecha-hoy').textContent = new Date().toLocaleDateString('es-AR', opciones);
+  const texto = new Date().toLocaleDateString('es-AR', opciones);
+  document.querySelectorAll('[data-fecha-hoy]').forEach(p => { p.textContent = texto; });
 }
 
 // Cuántos hábitos tiene cada categoría
@@ -434,10 +514,8 @@ function dibujarFiltros() {
   const chip = (valor, texto) =>
     `<button class="chip ${valor === filtroActual ? 'activo' : ''}" data-categoria="${escapar(valor)}">${texto}</button>`;
 
-  filtros.innerHTML =
-      chip('Todas', 'Todas')
-    + conHabitos.map(c => chip(c, `${escapar(c)} <span class="chip__cantidad">${cantidadEn(c)}</span>`)).join('')
-    + `<button class="chip chip--gestion" data-gestion aria-label="Gestionar categorías">⚙ Categorías</button>`;
+  filtros.innerHTML = chip('Todas', 'Todas')
+    + conHabitos.map(c => chip(c, `${escapar(c)} <span class="chip__cantidad">${cantidadEn(c)}</span>`)).join('');
 }
 
 function dibujarLista() {
@@ -477,15 +555,17 @@ function dibujarLista() {
   $('#resumen-dia').textContent = deHoy.length ? `${hechos} de ${deHoy.length} cumplidos` : '';
 }
 
+// Redibuja las dos pestañas
 function dibujarTodo() {
   mostrarFecha();
   dibujarFiltros();
   dibujarLista();
+  dibujarTareas(); // está en tareas.js
 }
 
 
 /* ---------------------------------------------------------
-   10. ACCIONES EN LA LISTA
+   12. ACCIONES EN LA LISTA DE HÁBITOS
    --------------------------------------------------------- */
 
 lista.addEventListener('click', (evento) => {
@@ -498,11 +578,11 @@ lista.addEventListener('click', (evento) => {
   // Tocar el nombre/info del hábito abre su menú
   const info = evento.target.closest('[data-menu]');
   if (info) {
-    abrirMenu(Number(info.dataset.menu));
+    abrirMenuHabito(Number(info.dataset.menu));
     return;
   }
 
-  // Botón de acción (✓, ▶, +1)
+  // Botón de acción (✓ o +1)
   const boton = evento.target.closest('.accion[data-id]');
   if (!boton) return;
 
@@ -511,12 +591,15 @@ lista.addEventListener('click', (evento) => {
 
   if (habito.tipo === 'check') {
     ponerValor(habito.id, valor ? 0 : 1); // marcar / desmarcar
-  } else if (habito.tipo === 'temporizador') {
-    // El temporizador real llega más adelante. Por ahora suma una sesión.
-    ponerValor(habito.id, valor + 1);
-    avisar('Sesión sumada (el temporizador real viene más adelante)');
   } else {
-    ponerValor(habito.id, valor + 1); // contador y límite
+    ponerValor(habito.id, valor + 1);     // sesiones, contador y límite
+
+    if (habito.tipo === 'temporizador') {
+      const total = habito.config.sesiones;
+      avisar(valor + 1 >= total
+        ? `¡Completaste las ${total} sesiones de hoy!`
+        : `Sesión ${valor + 1} de ${total} registrada`);
+    }
     if (habito.tipo === 'limite' && consumoLimite(habito) === habito.config.maximo + 1) {
       avisar(`Te pasaste del límite de ${habito.nombre}`);
     }
@@ -526,45 +609,31 @@ lista.addEventListener('click', (evento) => {
 });
 
 filtros.addEventListener('click', (evento) => {
-  if (evento.target.closest('[data-gestion]')) {
-    abrirCategorias();
-    return;
-  }
   const chip = evento.target.closest('.chip');
   if (!chip) return;
   filtroActual = chip.dataset.categoria;
   dibujarTodo();
 });
 
-
-/* ---------------------------------------------------------
-   11. MENÚ DEL HÁBITO (restar / eliminar)
-   --------------------------------------------------------- */
-
-function abrirMenu(id) {
-  habitoDelMenu = datos.habitos.find(h => h.id === id);
-  $('#hoja-titulo').textContent = habitoDelMenu.nombre;
-
+function abrirMenuHabito(id) {
+  const habito = datos.habitos.find(h => h.id === id);
+  const opciones = [
+    { texto: 'Ver historial y calendario', accion: () => abrirDetalle(id) },
+    { texto: 'Editar hábito', accion: () => abrirFormularioHabito(habito) }
+  ];
   // "Restar 1" solo tiene sentido si hoy hay algo registrado y no es un check
-  // (el check se desmarca tocando el mismo botón)
-  $('#hoja-restar').hidden = habitoDelMenu.tipo === 'check' || valorDia(id) === 0;
+  if (habito.tipo !== 'check' && valorDia(id) > 0) {
+    opciones.push({
+      texto: 'Restar 1 al registro de hoy',
+      accion: () => { ponerValor(id, valorDia(id) - 1); dibujarLista(); }
+    });
+  }
+  opciones.push({ texto: 'Eliminar hábito', peligro: true, accion: () => eliminarHabito(habito) });
 
-  hoja.hidden = false;
+  abrirMenu(habito.nombre, opciones);
 }
 
-function cerrarMenu() {
-  hoja.hidden = true;
-  habitoDelMenu = null;
-}
-
-$('#hoja-restar').addEventListener('click', () => {
-  ponerValor(habitoDelMenu.id, valorDia(habitoDelMenu.id) - 1);
-  cerrarMenu();
-  dibujarLista();
-});
-
-$('#hoja-eliminar').addEventListener('click', () => {
-  const habito = habitoDelMenu;
+function eliminarHabito(habito) {
   if (!confirm(`¿Eliminar "${habito.nombre}" y todo su historial?`)) return;
 
   datos.habitos = datos.habitos.filter(h => h.id !== habito.id);
@@ -574,27 +643,14 @@ $('#hoja-eliminar').addEventListener('click', () => {
     if (Object.keys(datos.registros[clave]).length === 0) delete datos.registros[clave];
   }
   guardarDatos();
-  cerrarMenu();
   dibujarTodo();
+  irA(pantallaHoy);
   avisar('Hábito eliminado');
-});
-
-$('#hoja-detalle').addEventListener('click', () => {
-  const id = habitoDelMenu.id;
-  cerrarMenu();
-  abrirDetalle(id);
-});
-
-$('#hoja-cancelar').addEventListener('click', cerrarMenu);
-
-// Tocar el fondo oscuro también cierra
-hoja.addEventListener('click', (evento) => {
-  if (evento.target === hoja) cerrarMenu();
-});
+}
 
 
 /* ---------------------------------------------------------
-   12. HÁBITOS DE EJEMPLO
+   13. HÁBITOS DE EJEMPLO
    --------------------------------------------------------- */
 
 function cargarEjemplos() {
@@ -604,7 +660,7 @@ function cargarEjemplos() {
       tipo: 'check', frecuencia: { modo: 'diario' }, config: {} },
     { nombre: 'Pomodoros de Gestión de Proyectos', categoria: 'Estudio', color: '#4f46e5',
       tipo: 'temporizador', frecuencia: { modo: 'dias', dias: [1, 2, 3, 4, 5] },
-      config: { sesiones: 2, minutos: 25, descanso: 5, descansoAuto: true } },
+      config: { sesiones: 2, minutos: 25, descanso: 5 } },
     { nombre: 'Tomar agua', categoria: 'Salud', color: '#10b981',
       tipo: 'contador', frecuencia: { modo: 'diario' }, config: { meta: 8, unidad: 'vasos' } },
     { nombre: 'Café', categoria: 'Salud', color: '#f59e0b',
@@ -639,36 +695,11 @@ function cargarEjemplos() {
 
 
 /* ---------------------------------------------------------
-   13. NAVEGACIÓN ENTRE PANTALLAS
+   14. FORMULARIO DE HÁBITO (nuevo y editar)
    --------------------------------------------------------- */
 
-function irA(pantalla) {
-  document.querySelectorAll('.pantalla').forEach(p => p.classList.remove('activa'));
-  pantalla.classList.add('activa');
-  window.scrollTo(0, 0);
-}
-
-$('#btn-nuevo').addEventListener('click', () => {
-  formulario.reset();
-  // Si estás filtrando una categoría, el hábito nuevo arranca en esa
-  dibujarSelectCategorias(filtroActual !== 'Todas' ? filtroActual : undefined);
-  actualizarFormulario();
-  irA(pantallaNuevo);
-  formulario.nombre.focus();
-});
-
-// Todos los botones "←" vuelven a la pantalla principal, actualizada
-document.querySelectorAll('[data-volver]').forEach(boton => {
-  boton.addEventListener('click', () => {
-    dibujarTodo();
-    irA(pantallaHoy);
-  });
-});
-
-
-/* ---------------------------------------------------------
-   14. FORMULARIO DE NUEVO HÁBITO
-   --------------------------------------------------------- */
+// null = creando uno nuevo; un id = editando ese hábito
+let editandoHabitoId = null;
 
 // Opciones del select de categoría, con una última opción para crear una nueva
 function dibujarSelectCategorias(elegida) {
@@ -686,7 +717,6 @@ $('#select-categoria').addEventListener('change', (evento) => {
 
 function prepararFormulario() {
   dibujarSelectCategorias();
-
   $('#selector-colores').innerHTML = colores.map((c, i) => `
     <label class="color">
       <input type="radio" name="color" value="${c}" ${i === 0 ? 'checked' : ''}>
@@ -694,17 +724,19 @@ function prepararFormulario() {
     </label>`).join('');
 }
 
+// Muestra/oculta las partes del formulario según tipo y frecuencia elegidos
 function actualizarFormulario() {
   const tipo = formulario.tipo.value;
   const frecuencia = formulario.frecuencia.value;
 
-  document.querySelectorAll('.config-tipo').forEach(div => {
+  document.querySelectorAll('[data-tipo]').forEach(div => {
     div.hidden = div.dataset.tipo !== tipo;
   });
 
+  // El tipo Límite tiene su propio período, así que oculta la frecuencia
   $('#bloque-frecuencia').hidden = (tipo === 'limite');
 
-  document.querySelectorAll('.config-frecuencia').forEach(div => {
+  document.querySelectorAll('[data-frecuencia]').forEach(div => {
     div.hidden = div.dataset.frecuencia !== frecuencia;
   });
 }
@@ -720,8 +752,63 @@ document.querySelectorAll('.atajos .chip').forEach(boton => {
   });
 });
 
-const numero = (nombre, porDefecto) => {
-  const valor = parseInt(formulario[nombre].value, 10);
+// Abre el formulario vacío (habito = undefined) o cargado con un hábito para editarlo
+function abrirFormularioHabito(habito) {
+  formulario.reset();
+  editandoHabitoId = habito ? habito.id : null;
+
+  $('#titulo-form').textContent = habito ? 'Editar hábito' : 'Nuevo hábito';
+  $('#btn-guardar-habito').textContent = habito ? 'Guardar cambios' : 'Guardar hábito';
+
+  // Al editar, el tipo queda fijo
+  formulario.querySelectorAll('input[name="tipo"]').forEach(radio => { radio.disabled = Boolean(habito); });
+  $('#ayuda-tipo-fijo').hidden = !habito;
+
+  if (!habito) {
+    // Si estás filtrando una categoría, el hábito nuevo arranca en esa
+    dibujarSelectCategorias(filtroActual !== 'Todas' ? filtroActual : undefined);
+  } else {
+    // Cargamos los valores del hábito en cada campo
+    formulario.nombre.value = habito.nombre;
+    dibujarSelectCategorias(habito.categoria);
+    formulario.color.value = habito.color;
+    formulario.tipo.value = habito.tipo;
+
+    const c = habito.config;
+    if (habito.tipo === 'temporizador') {
+      formulario.sesiones.value = c.sesiones;
+      formulario.minutos.value = c.minutos;
+      formulario.descanso.value = c.descanso;
+    } else if (habito.tipo === 'contador') {
+      formulario.meta.value = c.meta;
+      formulario.unidadContador.value = c.unidad;
+    } else if (habito.tipo === 'limite') {
+      formulario.maximo.value = c.maximo;
+      formulario.unidadLimite.value = c.unidad;
+      formulario.periodo.value = c.periodo;
+    }
+
+    if (habito.frecuencia) {
+      formulario.frecuencia.value = habito.frecuencia.modo;
+      if (habito.frecuencia.modo === 'dias') {
+        formulario.querySelectorAll('input[name="dias"]').forEach(casilla => {
+          casilla.checked = habito.frecuencia.dias.includes(Number(casilla.value));
+        });
+      }
+      if (habito.frecuencia.modo === 'semanal') formulario.veces.value = habito.frecuencia.veces;
+    }
+  }
+
+  actualizarFormulario();
+  irA(pantallaNuevo);
+  if (!habito) formulario.nombre.focus();
+}
+
+$('#btn-nuevo').addEventListener('click', () => abrirFormularioHabito());
+
+// Lee un número de un campo, con un valor por defecto si está vacío
+const numero = (form, nombre, porDefecto) => {
+  const valor = parseInt(form[nombre].value, 10);
   return Number.isNaN(valor) ? porDefecto : valor;
 };
 
@@ -740,16 +827,15 @@ formulario.addEventListener('submit', (evento) => {
   let config = {};
   if (tipo === 'temporizador') {
     config = {
-      sesiones: numero('sesiones', 1),
-      minutos: numero('minutos', 25),
-      descanso: numero('descanso', 0),
-      descansoAuto: formulario.descansoAuto.checked
+      sesiones: numero(formulario, 'sesiones', 1),
+      minutos: numero(formulario, 'minutos', 25),
+      descanso: numero(formulario, 'descanso', 0)
     };
   } else if (tipo === 'contador') {
-    config = { meta: numero('meta', 1), unidad: formulario.unidadContador.value.trim() || 'veces' };
+    config = { meta: numero(formulario, 'meta', 1), unidad: formulario.unidadContador.value.trim() || 'veces' };
   } else if (tipo === 'limite') {
     config = {
-      maximo: numero('maximo', 0),
+      maximo: numero(formulario, 'maximo', 0),
       unidad: formulario.unidadLimite.value.trim() || 'veces',
       periodo: formulario.periodo.value
     };
@@ -768,127 +854,36 @@ formulario.addEventListener('submit', (evento) => {
       }
       frecuencia = { modo, dias };
     } else {
-      frecuencia = { modo, veces: numero('veces', 1) };
+      frecuencia = { modo, veces: numero(formulario, 'veces', 1) };
     }
   }
 
-  datos.habitos.push({
-    id: Date.now(),
+  const campos = {
     nombre,
     categoria: formulario.categoria.value,
     color: formulario.color.value,
-    tipo,
     frecuencia,
-    config,
-    creado: hoy // lo vamos a usar para las rachas
-  });
-  guardarDatos();
+    config
+  };
 
-  filtroActual = 'Todas';
+  if (editandoHabitoId) {
+    // Editar: pisamos los campos, pero conservamos id, tipo y fecha de creación
+    const habito = datos.habitos.find(h => h.id === editandoHabitoId);
+    Object.assign(habito, campos);
+    avisar('Cambios guardados');
+  } else {
+    datos.habitos.push({ id: Date.now(), tipo, creado: hoy, ...campos });
+    filtroActual = 'Todas';
+    avisar('Hábito creado');
+  }
+  guardarDatos();
   dibujarTodo();
   irA(pantallaHoy);
-  avisar('Hábito creado');
 });
 
 
 /* ---------------------------------------------------------
-   14 bis. CATEGORÍAS
-   --------------------------------------------------------- */
-
-// Valida y agrega una categoría. Devuelve el nombre si se agregó.
-function agregarCategoria(nombre) {
-  nombre = (nombre || '').trim();
-  if (!nombre) return null;
-
-  // Sin repetidas, sin importar mayúsculas: "salud" = "Salud"
-  const existe = datos.categorias.find(c => c.toLowerCase() === nombre.toLowerCase());
-  if (existe) {
-    avisar(`Ya existe la categoría "${existe}"`);
-    return existe;
-  }
-  datos.categorias.push(nombre);
-  guardarDatos();
-  return nombre;
-}
-
-function abrirCategorias() {
-  dibujarCategorias();
-  irA(pantallaCategorias);
-}
-
-function dibujarCategorias() {
-  $('#lista-categorias').innerHTML = datos.categorias.map((c, i) => {
-    const n = cantidadEn(c);
-    return `
-      <li class="categoria">
-        <span class="categoria__nombre">${escapar(c)}</span>
-        <span class="categoria__cantidad">${n} ${n === 1 ? 'hábito' : 'hábitos'}</span>
-        <button data-renombrar="${i}" aria-label="Renombrar ${escapar(c)}">✏️</button>
-        <button data-borrar="${i}" aria-label="Eliminar ${escapar(c)}">🗑</button>
-      </li>`;
-  }).join('');
-}
-
-$('#form-categoria').addEventListener('submit', (evento) => {
-  evento.preventDefault();
-  const campo = evento.target.nombre;
-  if (!campo.value.trim()) {
-    avisar('Escribí un nombre');
-    return;
-  }
-  agregarCategoria(campo.value);
-  campo.value = '';
-  dibujarCategorias();
-  prepararFormulario();
-});
-
-$('#lista-categorias').addEventListener('click', (evento) => {
-  const renombrar = evento.target.closest('[data-renombrar]');
-  const borrar = evento.target.closest('[data-borrar]');
-
-  if (renombrar) {
-    const vieja = datos.categorias[renombrar.dataset.renombrar];
-    const nueva = (prompt('Nuevo nombre:', vieja) || '').trim();
-    if (!nueva || nueva === vieja) return;
-    if (datos.categorias.some(c => c !== vieja && c.toLowerCase() === nueva.toLowerCase())) {
-      avisar('Ya existe una categoría con ese nombre');
-      return;
-    }
-    // Cambiamos el nombre en la lista y en todos los hábitos que la usan
-    datos.categorias[renombrar.dataset.renombrar] = nueva;
-    datos.habitos.forEach(h => { if (h.categoria === vieja) h.categoria = nueva; });
-    if (filtroActual === vieja) filtroActual = nueva;
-  }
-
-  if (borrar) {
-    if (datos.categorias.length === 1) {
-      avisar('Tiene que quedar al menos una categoría');
-      return;
-    }
-    const indice = Number(borrar.dataset.borrar);
-    const categoria = datos.categorias[indice];
-    const n = cantidadEn(categoria);
-    // Si tiene hábitos, los pasamos a otra categoría para no dejarlos huérfanos
-    const destino = datos.categorias.find(c => c !== categoria);
-    const pregunta = n === 0
-      ? `¿Eliminar la categoría "${categoria}"?`
-      : `"${categoria}" tiene ${n} ${n === 1 ? 'hábito' : 'hábitos'}. Si la eliminás, pasan a "${destino}". ¿Seguimos?`;
-    if (!confirm(pregunta)) return;
-
-    datos.habitos.forEach(h => { if (h.categoria === categoria) h.categoria = destino; });
-    datos.categorias.splice(indice, 1);
-  }
-
-  if (renombrar || borrar) {
-    guardarDatos();
-    dibujarCategorias();
-    prepararFormulario();
-  }
-});
-
-
-/* ---------------------------------------------------------
-   14 ter. DETALLE DEL HÁBITO: estadísticas y calendario
+   15. DETALLE DEL HÁBITO: estadísticas y calendario
    --------------------------------------------------------- */
 
 const detalle = { habito: null, mes: null }; // mes = Date del día 1 del mes que se ve
@@ -900,6 +895,8 @@ function abrirDetalle(id) {
   dibujarDetalle();
   irA(pantallaDetalle);
 }
+
+$('#detalle-editar').addEventListener('click', () => abrirFormularioHabito(detalle.habito));
 
 // Cómo quedó un día puntual, para pintarlo en el calendario
 function estadoDelDia(habito, clave) {
@@ -996,8 +993,7 @@ $('#calendario').addEventListener('click', (evento) => {
     ponerValor(h.id, actual ? 0 : 1, clave);
   } else {
     const fechaTexto = fechaDesdeClave(clave).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
-    const queSeCarga = h.tipo === 'temporizador' ? 'Sesiones completadas'
-                     : `Cantidad de ${h.config.unidad}`;
+    const queSeCarga = h.tipo === 'temporizador' ? 'Sesiones hechas' : `Cantidad de ${h.config.unidad}`;
     const respuesta = prompt(`${queSeCarga} el ${fechaTexto}:`, actual);
     if (respuesta === null) return; // tocó Cancelar
     const valor = parseInt(respuesta, 10);
@@ -1012,7 +1008,169 @@ $('#calendario').addEventListener('click', (evento) => {
 
 
 /* ---------------------------------------------------------
-   15. CAMBIO DE DÍA
+   16. AJUSTES: categorías
+   --------------------------------------------------------- */
+
+// Valida y agrega una categoría. Devuelve el nombre si se agregó.
+function agregarCategoria(nombre) {
+  nombre = (nombre || '').trim();
+  if (!nombre) return null;
+
+  // Sin repetidas, sin importar mayúsculas: "salud" = "Salud"
+  const existe = datos.categorias.find(c => c.toLowerCase() === nombre.toLowerCase());
+  if (existe) {
+    avisar(`Ya existe la categoría "${existe}"`);
+    return existe;
+  }
+  datos.categorias.push(nombre);
+  guardarDatos();
+  return nombre;
+}
+
+function abrirAjustes() {
+  dibujarCategorias();
+  dibujarInfoRespaldo();
+  irA(pantallaAjustes);
+}
+
+function dibujarCategorias() {
+  $('#lista-categorias').innerHTML = datos.categorias.map((c, i) => {
+    const n = cantidadEn(c);
+    return `
+      <li class="categoria">
+        <span class="categoria__nombre">${escapar(c)}</span>
+        <span class="categoria__cantidad">${n} ${n === 1 ? 'hábito' : 'hábitos'}</span>
+        <button data-renombrar="${i}" aria-label="Renombrar ${escapar(c)}">✏️</button>
+        <button data-borrar="${i}" aria-label="Eliminar ${escapar(c)}">🗑</button>
+      </li>`;
+  }).join('');
+}
+
+$('#form-categoria').addEventListener('submit', (evento) => {
+  evento.preventDefault();
+  const campo = evento.target.nombre;
+  if (!campo.value.trim()) {
+    avisar('Escribí un nombre');
+    return;
+  }
+  agregarCategoria(campo.value);
+  campo.value = '';
+  dibujarCategorias();
+});
+
+$('#lista-categorias').addEventListener('click', (evento) => {
+  const renombrar = evento.target.closest('[data-renombrar]');
+  const borrar = evento.target.closest('[data-borrar]');
+
+  if (renombrar) {
+    const vieja = datos.categorias[renombrar.dataset.renombrar];
+    const nueva = (prompt('Nuevo nombre:', vieja) || '').trim();
+    if (!nueva || nueva === vieja) return;
+    if (datos.categorias.some(c => c !== vieja && c.toLowerCase() === nueva.toLowerCase())) {
+      avisar('Ya existe una categoría con ese nombre');
+      return;
+    }
+    // Cambiamos el nombre en la lista y en todos los hábitos que la usan
+    datos.categorias[renombrar.dataset.renombrar] = nueva;
+    datos.habitos.forEach(h => { if (h.categoria === vieja) h.categoria = nueva; });
+    if (filtroActual === vieja) filtroActual = nueva;
+  }
+
+  if (borrar) {
+    if (datos.categorias.length === 1) {
+      avisar('Tiene que quedar al menos una categoría');
+      return;
+    }
+    const indice = Number(borrar.dataset.borrar);
+    const categoria = datos.categorias[indice];
+    const n = cantidadEn(categoria);
+    // Si tiene hábitos, los pasamos a otra categoría para no dejarlos huérfanos
+    const destino = datos.categorias.find(c => c !== categoria);
+    const pregunta = n === 0
+      ? `¿Eliminar la categoría "${categoria}"?`
+      : `"${categoria}" tiene ${n} ${n === 1 ? 'hábito' : 'hábitos'}. Si la eliminás, pasan a "${destino}". ¿Seguimos?`;
+    if (!confirm(pregunta)) return;
+
+    datos.habitos.forEach(h => { if (h.categoria === categoria) h.categoria = destino; });
+    datos.categorias.splice(indice, 1);
+  }
+
+  if (renombrar || borrar) {
+    guardarDatos();
+    dibujarCategorias();
+  }
+});
+
+
+/* ---------------------------------------------------------
+   17. AJUSTES: respaldo (exportar e importar)
+   --------------------------------------------------------- */
+
+function dibujarInfoRespaldo() {
+  $('#info-respaldo').textContent = datos.ultimoRespaldo
+    ? `Último respaldo: ${fechaDesdeClave(datos.ultimoRespaldo).toLocaleDateString('es-AR')}`
+    : 'Todavía no hiciste ningún respaldo.';
+}
+
+$('#btn-exportar').addEventListener('click', () => {
+  datos.ultimoRespaldo = hoy;
+  guardarDatos();
+
+  // Armamos un archivo JSON con todos los datos
+  const contenido = JSON.stringify({ app: 'mis-habitos', exportado: new Date().toISOString(), datos }, null, 2);
+  const archivo = new Blob([contenido], { type: 'application/json' });
+
+  // Truco para descargar: un link invisible que apunta al archivo y lo "clickeamos"
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(archivo);
+  link.download = `mis-habitos-respaldo-${hoy}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+
+  dibujarInfoRespaldo();
+  avisar('Respaldo descargado. Buscalo en Descargas.', 3);
+});
+
+// El botón abre el selector de archivos (que está oculto)
+$('#btn-importar').addEventListener('click', () => $('#archivo-respaldo').click());
+
+$('#archivo-respaldo').addEventListener('change', async (evento) => {
+  const archivo = evento.target.files[0];
+  evento.target.value = ''; // para poder elegir el mismo archivo otra vez
+  if (!archivo) return;
+
+  let leidos;
+  try {
+    const json = JSON.parse(await archivo.text());
+    leidos = json.datos;
+    // Revisamos que tenga la forma esperada
+    if (json.app !== 'mis-habitos' || !leidos || !Array.isArray(leidos.habitos) || typeof leidos.registros !== 'object') {
+      throw new Error('formato');
+    }
+  } catch {
+    avisar('Ese archivo no es un respaldo de Mis Hábitos', 3);
+    return;
+  }
+
+  const nh = leidos.habitos.length;
+  const nt = (leidos.tareas || []).length;
+  const pregunta = `El respaldo tiene ${nh} ${nh === 1 ? 'hábito' : 'hábitos'} y ${nt} ${nt === 1 ? 'tarea' : 'tareas'}.\n`
+                 + 'Va a REEMPLAZAR todos tus datos actuales. ¿Seguimos?';
+  if (!confirm(pregunta)) return;
+
+  datos = normalizarDatos(leidos);
+  guardarDatos();
+  filtroActual = 'Todas';
+  dibujarTodo();
+  abrirAjustes();
+  avisar('Respaldo importado');
+});
+
+
+/* ---------------------------------------------------------
+   18. CAMBIO DE DÍA
    ---------------------------------------------------------
    Si dejás la app abierta y pasa la medianoche, al volver a ella
    se actualiza sola para mostrar el día nuevo.
@@ -1032,8 +1190,10 @@ setInterval(revisarCambioDeDia, 60 * 1000); // y una vez por minuto, por las dud
 
 
 /* ---------------------------------------------------------
-   15 bis. PWA: instalación y funcionamiento sin internet
+   19. PWA: instalación, funcionamiento sin internet y actualizaciones
    --------------------------------------------------------- */
+
+const MENSAJE_VERSION_NUEVA = 'Hay una versión nueva. Cerrá y abrí la app para verla.';
 
 // El service worker solo funciona en https (o en localhost), no abriendo el archivo con doble clic
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -1042,10 +1202,15 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       .catch(error => console.error('No se pudo registrar el service worker', error));
   });
 
-  // Cuando se activa una versión nueva de la app, avisamos
+  // El service worker nos avisa cuando bajó archivos nuevos (ver sw.js)
+  navigator.serviceWorker.addEventListener('message', (evento) => {
+    if (evento.data && evento.data.tipo === 'version-nueva') avisar(MENSAJE_VERSION_NUEVA, 6);
+  });
+
+  // También avisamos si se instaló un service worker nuevo
   let habiaControlador = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (habiaControlador) avisar('App actualizada. Cerrala y abrila para ver los cambios.');
+    if (habiaControlador) avisar(MENSAJE_VERSION_NUEVA, 6);
     habiaControlador = true;
   });
 }
@@ -1081,7 +1246,12 @@ window.addEventListener('appinstalled', () => {
 
 
 /* ---------------------------------------------------------
-   16. ARRANQUE
+   20. ARRANQUE
+   ---------------------------------------------------------
+   Esperamos a DOMContentLoaded para que tareas.js ya esté cargado
+   (los <script> del final del body se ejecutan antes de ese evento).
    --------------------------------------------------------- */
-prepararFormulario();
-dibujarTodo();
+document.addEventListener('DOMContentLoaded', () => {
+  prepararFormulario();
+  dibujarTodo();
+});
