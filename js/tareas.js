@@ -182,7 +182,7 @@ function dibujarTareas() {
    3. ACCIONES EN LA LISTA
    --------------------------------------------------------- */
 
-listaTareas.addEventListener('click', (evento) => {
+escuchar(listaTareas, 'click', (evento) => {
   // Botón de la derecha (✓ o +1)
   const boton = evento.target.closest('[data-tarea-accion]');
   if (boton) {
@@ -224,7 +224,7 @@ listaTareas.addEventListener('click', (evento) => {
 
 // Recordamos si "Hechas" quedó abierta o cerrada
 // (el evento "toggle" no burbujea, por eso lo escuchamos en la fase de captura con true)
-listaTareas.addEventListener('toggle', (evento) => {
+escuchar(listaTareas, 'toggle', (evento) => {
   if (evento.target.id === 'seccion-hechas') hechasAbiertas = evento.target.open;
 }, true);
 
@@ -321,7 +321,7 @@ function actualizarFormularioTarea() {
     div.hidden = div.dataset.tipoTarea !== tipo;
   });
 }
-formTarea.addEventListener('change', actualizarFormularioTarea);
+escuchar(formTarea, 'change', actualizarFormularioTarea);
 
 function abrirFormularioTarea(tarea) {
   formTarea.reset();
@@ -351,9 +351,9 @@ function abrirFormularioTarea(tarea) {
   if (!tarea) formTarea.nombre.focus();
 }
 
-$('#btn-nueva-tarea').addEventListener('click', () => abrirFormularioTarea());
+escuchar('#btn-nueva-tarea', 'click', () => abrirFormularioTarea());
 
-formTarea.addEventListener('submit', (evento) => {
+escuchar(formTarea, 'submit', (evento) => {
   evento.preventDefault();
 
   const nombre = formTarea.nombre.value.trim();

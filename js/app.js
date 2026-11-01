@@ -6,6 +6,36 @@
 
 
 /* ---------------------------------------------------------
+   0. SI ALGO FALLA (va primero, para atrapar errores de todo el archivo)
+   ---------------------------------------------------------
+   Si hay un error inesperado (por ejemplo, el celu quedó con una mezcla
+   de archivos viejos y nuevos), en vez de que la app quede muda:
+     1. Te avisamos.
+     2. Le pedimos al service worker que vuelva a bajar todos los archivos juntos.
+   Lo hacemos una sola vez por apertura, para no llenarte de avisos.
+   --------------------------------------------------------- */
+let yaAvisamosError = false;
+
+function manejarError(error) {
+  console.error(error);
+  if (yaAvisamosError) return;
+  yaAvisamosError = true;
+
+  try {
+    avisar('Algo no cargó bien. Estoy bajando la versión completa…', 6);
+  } catch {
+    // si el error fue tan temprano que ni siquiera existe avisar(), seguimos igual
+  }
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ tipo: 'resincronizar' });
+  }
+}
+
+window.addEventListener('error', (evento) => manejarError(evento.error || evento.message));
+window.addEventListener('unhandledrejection', (evento) => manejarError(evento.reason));
+
+
+/* ---------------------------------------------------------
    1. CONSTANTES
    --------------------------------------------------------- */
 
@@ -63,7 +93,8 @@ function datosVacios() {
     habitos: [],
     registros: {},
     tareas: [],
-    ultimoRespaldo: null
+    ultimoRespaldo: null,
+    inicioSemana: 1        // 1 = la semana empieza el lunes, 0 = el domingo
   };
 }
 
@@ -120,12 +151,31 @@ function sumarDias(fecha, cantidad) {
   return nueva;
 }
 
-// Las 7 claves de la semana de una fecha, de lunes a domingo
+/* --- Semanas ---
+   La semana puede empezar el lunes (1) o el domingo (0), según Ajustes.
+   Los valores son los mismos que devuelve getDay(): 0 = domingo, 1 = lunes. */
+const inicioSemana = () => datos.inicioSemana ?? 1;
+
+// Cuántos días pasaron desde que empezó la semana (0 = primer día de la semana)
+const diaDeLaSemana = (fecha) => (fecha.getDay() - inicioSemana() + 7) % 7;
+
+// Primer día de la semana de una fecha
+const primerDiaSemana = (fecha) => sumarDias(fecha, -diaDeLaSemana(fecha));
+
+// Las 7 claves de la semana de una fecha, en orden
 function clavesDeLaSemana(fecha = new Date()) {
-  const lunes = sumarDias(fecha, -((fecha.getDay() + 6) % 7)); // lunes=0 ... domingo=6
+  const primero = primerDiaSemana(fecha);
   const claves = [];
-  for (let i = 0; i < 7; i++) claves.push(claveFecha(sumarDias(lunes, i)));
+  for (let i = 0; i < 7; i++) claves.push(claveFecha(sumarDias(primero, i)));
   return claves;
+}
+
+// "lun 26/10 – dom 1/11 · último día" (o "quedan 3 días")
+function textoSemanaActual() {
+  const claves = clavesDeLaSemana();
+  const quedan = 7 - diaDeLaSemana(new Date()); // contando hoy
+  const resto = quedan === 1 ? 'hoy es el último día' : `quedan ${quedan} días`;
+  return `${fechaCorta(claves[0])} – ${fechaCorta(claves[6])} · ${resto}`;
 }
 
 // Guardamos qué día es "hoy" para detectar cuando pasa la medianoche
@@ -282,19 +332,18 @@ function estadosPorDia(habito) {
   return estados;
 }
 
-// Etiquetas de cada SEMANA (lunes a domingo), desde el inicio hasta hoy (o hasta el fin)
+// Etiquetas de cada SEMANA, desde el inicio hasta hoy (o hasta el fin)
 function estadosPorSemana(habito) {
   const estados = [];
-  const inicio = fechaDesdeClave(inicioDe(habito));
-  const primerLunes = sumarDias(inicio, -((inicio.getDay() + 6) % 7));
+  const primeraSemana = primerDiaSemana(fechaDesdeClave(inicioDe(habito)));
   const hasta = ultimoDiaEvaluado(habito);
 
-  for (let lunes = primerLunes; claveFecha(lunes) <= hasta; lunes = sumarDias(lunes, 7)) {
+  for (let semana = primeraSemana; claveFecha(semana) <= hasta; semana = sumarDias(semana, 7)) {
     // Solo miramos los días que están dentro de la duración del hábito
-    const claves = clavesDeLaSemana(lunes).filter(c => c >= inicioDe(habito) && c <= hasta);
+    const claves = clavesDeLaSemana(semana).filter(c => c >= inicioDe(habito) && c <= hasta);
     const esActual = claves.includes(hoy);
     // La primera y la última semana pueden estar incompletas
-    const esPrimera = lunes.getTime() === primerLunes.getTime();
+    const esPrimera = semana.getTime() === primeraSemana.getTime();
     const esUltima = Boolean(habito.fin) && claves.includes(habito.fin);
 
     if (habito.tipo === 'limite') {
@@ -374,6 +423,22 @@ function avisar(mensaje, segundos = 2) {
   avisar.timer = setTimeout(() => aviso.classList.remove('visible'), segundos * 1000);
 }
 
+/*
+  Conecta un evento a un elemento, pero sin trabar la app si el elemento no existe.
+  Puede pasar si el celu quedó con un index.html viejo y un app.js nuevo:
+  en vez de que falle todo, solo deja de andar ese botón.
+    escuchar('#btn-nuevo', 'click', () => ...)    con un selector
+    escuchar(lista, 'click', () => ...)           o con un elemento
+*/
+function escuchar(objetivo, evento, funcion, opciones) {
+  const elemento = typeof objetivo === 'string' ? $(objetivo) : objetivo;
+  if (!elemento) {
+    console.warn('No encontré el elemento', objetivo);
+    return;
+  }
+  elemento.addEventListener(evento, funcion, opciones);
+}
+
 // Barra de progreso
 function barra(porcentaje, clases = '') {
   return `<div class="progreso ${clases}"><div class="progreso__barra" style="width:${porcentaje}%"></div></div>`;
@@ -404,7 +469,7 @@ function irA(pantalla) {
   window.scrollTo(0, 0);
 }
 
-$('#pestanas').addEventListener('click', (evento) => {
+escuchar('#pestanas', 'click', (evento) => {
   const boton = evento.target.closest('.pestana');
   if (!boton) return;
   dibujarTodo();
@@ -449,7 +514,7 @@ function cerrarMenu() {
   hoja.hidden = true;
 }
 
-$('#hoja-opciones').addEventListener('click', (evento) => {
+escuchar('#hoja-opciones', 'click', (evento) => {
   const boton = evento.target.closest('[data-opcion]');
   if (!boton) return;
   const opcion = opcionesMenu[boton.dataset.opcion];
@@ -457,8 +522,8 @@ $('#hoja-opciones').addEventListener('click', (evento) => {
   opcion.accion();
 });
 
-$('#hoja-cancelar').addEventListener('click', cerrarMenu);
-hoja.addEventListener('click', (evento) => {
+escuchar('#hoja-cancelar', 'click', cerrarMenu);
+escuchar(hoja, 'click', (evento) => {
   if (evento.target === hoja) cerrarMenu(); // tocar el fondo oscuro también cierra
 });
 
@@ -508,7 +573,14 @@ function htmlProgreso(habito) {
 
   // Los "X veces por semana" muestran además cómo va la semana
   if (esSemanal(habito)) {
-    html += `<p class="habito__semana">Esta semana: ${diasCumplidosSemana(habito)} de ${habito.frecuencia.veces}</p>`;
+    const hechos = diasCumplidosSemana(habito);
+    const veces = habito.frecuencia.veces;
+    html += `<p class="habito__progreso-texto">Esta semana: ${hechos} de ${veces}${hechos >= veces ? ' ✓' : ''}</p>`;
+  }
+
+  // Todo lo que se cuenta por semana muestra qué días abarca y cuánto falta
+  if (esSemanal(habito) || (tipo === 'limite' && config.periodo === 'semana')) {
+    html += `<p class="habito__semana">${textoSemanaActual()}</p>`;
   }
 
   return html;
@@ -585,7 +657,7 @@ function htmlHabito(h) {
 }
 
 // Recordamos si "Finalizados" quedó abierta (el evento "toggle" no burbujea: usamos captura)
-lista.addEventListener('toggle', (evento) => {
+escuchar(lista, 'toggle', (evento) => {
   if (evento.target.id === 'seccion-finalizados') finalizadosAbiertos = evento.target.open;
 }, true);
 
@@ -650,7 +722,7 @@ function dibujarTodo() {
    12. ACCIONES EN LA LISTA DE HÁBITOS
    --------------------------------------------------------- */
 
-lista.addEventListener('click', (evento) => {
+escuchar(lista, 'click', (evento) => {
   // Botón "Cargar hábitos de ejemplo"
   if (evento.target.closest('#btn-ejemplos')) {
     cargarEjemplos();
@@ -690,7 +762,7 @@ lista.addEventListener('click', (evento) => {
   dibujarLista();
 });
 
-filtros.addEventListener('click', (evento) => {
+escuchar(filtros, 'click', (evento) => {
   const chip = evento.target.closest('.chip');
   if (!chip) return;
   filtroActual = chip.dataset.categoria;
@@ -791,7 +863,7 @@ function dibujarSelectCategorias(elegida) {
 }
 
 // Si elige "+ Nueva categoría…", la pedimos y la dejamos seleccionada
-$('#select-categoria').addEventListener('change', (evento) => {
+escuchar('#select-categoria', 'change', (evento) => {
   if (evento.target.value !== '__nueva__') return;
   const nueva = agregarCategoria(prompt('Nombre de la nueva categoría:'));
   dibujarSelectCategorias(nueva || datos.categorias[0]);
@@ -823,7 +895,7 @@ function actualizarFormulario() {
   });
 }
 
-formulario.addEventListener('change', actualizarFormulario);
+escuchar(formulario, 'change', actualizarFormulario);
 
 document.querySelectorAll('.atajos .chip').forEach(boton => {
   boton.addEventListener('click', () => {
@@ -899,11 +971,11 @@ function abrirFormularioHabito(habito) {
 }
 
 // Si cambia el inicio, el fin no puede quedar antes
-formulario.inicio.addEventListener('change', () => {
+escuchar(formulario.inicio, 'change', () => {
   formulario.fin.min = formulario.inicio.value;
 });
 
-$('#btn-nuevo').addEventListener('click', () => abrirFormularioHabito());
+escuchar('#btn-nuevo', 'click', () => abrirFormularioHabito());
 
 // Lee un número de un campo, con un valor por defecto si está vacío
 const numero = (form, nombre, porDefecto) => {
@@ -911,7 +983,7 @@ const numero = (form, nombre, porDefecto) => {
   return Number.isNaN(valor) ? porDefecto : valor;
 };
 
-formulario.addEventListener('submit', (evento) => {
+escuchar(formulario, 'submit', (evento) => {
   evento.preventDefault();
 
   const nombre = formulario.nombre.value.trim();
@@ -1009,7 +1081,7 @@ function abrirDetalle(id) {
   irA(pantallaDetalle);
 }
 
-$('#detalle-editar').addEventListener('click', () => abrirFormularioHabito(detalle.habito));
+escuchar('#detalle-editar', 'click', () => abrirFormularioHabito(detalle.habito));
 
 // Cómo quedó un día puntual, para pintarlo en el calendario
 function estadoDelDia(habito, clave) {
@@ -1069,7 +1141,11 @@ function dibujarDetalle() {
   const mes = detalle.mes.getMonth();
   $('#mes-titulo').textContent = detalle.mes.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
 
-  const huecos = (detalle.mes.getDay() + 6) % 7;         // celdas vacías antes del día 1 (semana arranca el lunes)
+  // Encabezado: L M X J V S D, o D L M X J V S si la semana empieza el domingo
+  $('#calendario-semana').innerHTML = [0, 1, 2, 3, 4, 5, 6]
+    .map(i => `<span>${nombresDias[(i + inicioSemana()) % 7]}</span>`).join('');
+
+  const huecos = diaDeLaSemana(detalle.mes);              // celdas vacías antes del día 1
   const diasDelMes = new Date(anio, mes + 1, 0).getDate(); // el "día 0" del mes siguiente es el último de este
 
   let html = '<span></span>'.repeat(huecos);
@@ -1088,18 +1164,18 @@ function dibujarDetalle() {
   $('#mes-siguiente').disabled = claveMes >= hoy.slice(0, 7);
 }
 
-$('#mes-anterior').addEventListener('click', () => {
+escuchar('#mes-anterior', 'click', () => {
   detalle.mes = new Date(detalle.mes.getFullYear(), detalle.mes.getMonth() - 1, 1);
   dibujarDetalle();
 });
 
-$('#mes-siguiente').addEventListener('click', () => {
+escuchar('#mes-siguiente', 'click', () => {
   detalle.mes = new Date(detalle.mes.getFullYear(), detalle.mes.getMonth() + 1, 1);
   dibujarDetalle();
 });
 
 // Tocar un día permite corregir su registro
-$('#calendario').addEventListener('click', (evento) => {
+escuchar('#calendario', 'click', (evento) => {
   const celda = evento.target.closest('.dia-cal[data-clave]');
   if (!celda) return;
 
@@ -1148,8 +1224,17 @@ function agregarCategoria(nombre) {
 function abrirAjustes() {
   dibujarCategorias();
   dibujarInfoRespaldo();
+  const selectSemana = $('#select-inicio-semana');
+  if (selectSemana) selectSemana.value = String(inicioSemana());
   irA(pantallaAjustes);
 }
+
+// Ajuste: ¿la semana empieza el lunes o el domingo?
+escuchar('#select-inicio-semana', 'change', (evento) => {
+  datos.inicioSemana = Number(evento.target.value);
+  guardarDatos();
+  avisar(datos.inicioSemana === 1 ? 'Semanas de lunes a domingo' : 'Semanas de domingo a sábado');
+});
 
 function dibujarCategorias() {
   $('#lista-categorias').innerHTML = datos.categorias.map((c, i) => {
@@ -1164,7 +1249,7 @@ function dibujarCategorias() {
   }).join('');
 }
 
-$('#form-categoria').addEventListener('submit', (evento) => {
+escuchar('#form-categoria', 'submit', (evento) => {
   evento.preventDefault();
   const campo = evento.target.nombre;
   if (!campo.value.trim()) {
@@ -1176,7 +1261,7 @@ $('#form-categoria').addEventListener('submit', (evento) => {
   dibujarCategorias();
 });
 
-$('#lista-categorias').addEventListener('click', (evento) => {
+escuchar('#lista-categorias', 'click', (evento) => {
   const renombrar = evento.target.closest('[data-renombrar]');
   const borrar = evento.target.closest('[data-borrar]');
 
@@ -1230,7 +1315,7 @@ function dibujarInfoRespaldo() {
     : 'Todavía no hiciste ningún respaldo.';
 }
 
-$('#btn-exportar').addEventListener('click', () => {
+escuchar('#btn-exportar', 'click', () => {
   datos.ultimoRespaldo = hoy;
   guardarDatos();
 
@@ -1252,9 +1337,9 @@ $('#btn-exportar').addEventListener('click', () => {
 });
 
 // El botón abre el selector de archivos (que está oculto)
-$('#btn-importar').addEventListener('click', () => $('#archivo-respaldo').click());
+escuchar('#btn-importar', 'click', () => $('#archivo-respaldo').click());
 
-$('#archivo-respaldo').addEventListener('change', async (evento) => {
+escuchar('#archivo-respaldo', 'change', async (evento) => {
   const archivo = evento.target.files[0];
   evento.target.value = ''; // para poder elegir el mismo archivo otra vez
   if (!archivo) return;
@@ -1325,6 +1410,13 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     if (evento.data && evento.data.tipo === 'version-nueva') avisar(MENSAJE_VERSION_NUEVA, 6);
   });
 
+  // Si el service worker termina de bajar todo después de un error, también avisamos
+  navigator.serviceWorker.addEventListener('message', (evento) => {
+    if (evento.data && evento.data.tipo === 'resincronizado') {
+      avisar('Listo. Cerrá y abrí la app para terminar de actualizarla.', 6);
+    }
+  });
+
   // También avisamos si se instaló un service worker nuevo
   let habiaControlador = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -1349,7 +1441,7 @@ window.addEventListener('beforeinstallprompt', (evento) => {
   $('#btn-instalar').hidden = false;
 });
 
-$('#btn-instalar').addEventListener('click', async () => {
+escuchar('#btn-instalar', 'click', async () => {
   if (!pedidoInstalacion) return;
   pedidoInstalacion.prompt();
   await pedidoInstalacion.userChoice;
