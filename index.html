@@ -323,9 +323,8 @@
         <p class="calendario__titulo" id="mes-titulo"></p>
         <button class="boton-volver" id="mes-siguiente" aria-label="Mes siguiente">›</button>
       </div>
-      <div class="calendario__semana">
-        <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
-      </div>
+      <!-- Las iniciales de los días se arman desde app.js, según si la semana empieza el lunes o el domingo -->
+      <div class="calendario__semana" id="calendario-semana"></div>
       <div class="calendario__grilla" id="calendario"></div>
       <div class="leyenda">
         <span><i class="dia-cal--ok"></i>Cumplido</span>
@@ -355,6 +354,17 @@
       <button type="submit" class="boton-principal">Agregar</button>
     </form>
     <ul class="lista-categorias" id="lista-categorias"></ul>
+
+    <h3 class="subtitulo">Semana</h3>
+    <div class="bloque">
+      <label class="campo">La semana empieza el
+        <select id="select-inicio-semana">
+          <option value="1">Lunes (lunes a domingo)</option>
+          <option value="0">Domingo (domingo a sábado)</option>
+        </select>
+      </label>
+      <p class="ayuda">Se usa en los hábitos de "X veces por semana", los límites semanales y el calendario. Si lo cambiás, las rachas semanales se recalculan.</p>
+    </div>
 
     <h3 class="subtitulo">Respaldo</h3>
     <div class="bloque">

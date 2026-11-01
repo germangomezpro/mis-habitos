@@ -6,7 +6,7 @@ App de hábitos y tareas para el celular (PWA).
   o X veces por semana, rachas, calendario y edición.
 - **Tareas únicas**: día, hora opcional, check/sesiones/contador, vencidas, sección Hechas
   y botón para agregarlas a Google Calendar.
-- **Ajustes**: categorías y respaldo (exportar/importar).
+- **Ajustes**: categorías, día en que empieza la semana (lunes o domingo) y respaldo (exportar/importar).
 
 ## Estructura
 
@@ -46,8 +46,13 @@ El service worker no funciona abriendo `index.html` con doble clic: necesita un 
 ## Cuando cambies algo
 
 Subí los archivos nuevos a GitHub y listo. La app abre con la copia guardada y,
-por detrás, descarga lo nuevo: avisa "Hay una versión nueva" y la próxima vez
-que la abras ya la usás. (Si agregás un archivo nuevo, sumalo a la lista
+por detrás, revisa si cambió algo. Si cambió aunque sea un archivo, baja todos
+juntos (así nunca queda una mezcla de viejos y nuevos), avisa "Hay una versión
+nueva" y la próxima vez que la abras ya la usás.
+
+Consejo: abrí la app recién cuando el último cambio tenga el tilde verde en la
+pestaña Actions de GitHub. Si igual algo queda desfasado, la app avisa
+"Algo no cargó bien" y vuelve a bajar todo sola. (Si agregás un archivo nuevo, sumalo a la lista
 `ARCHIVOS` de `sw.js` para que funcione sin internet.)
 
 Para subir archivos que van dentro de una carpeta, usá la dirección

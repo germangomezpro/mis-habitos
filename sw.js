@@ -5,20 +5,21 @@
    Es un archivo JavaScript que el navegador corre "aparte" de la página.
    Se para en el medio de cada pedido de archivos.
 
-   Estrategia: "mostrar lo guardado y actualizar por detrás"
-   (en inglés le dicen "stale-while-revalidate"):
-
+   Estrategia:
      1. La app abre SIEMPRE con la copia guardada en el celular → al instante.
-     2. Al mismo tiempo, pide los archivos a internet y, si llegan,
-        reemplaza la copia guardada.
-     3. Si algún archivo cambió, le avisa a la página.
-        La próxima vez que abras la app, ya usás la versión nueva.
+     2. Cada vez que abrís la app, por detrás, revisa en internet si cambió
+        algún archivo.
+     3. Si cambió aunque sea uno, baja TODOS juntos y recién ahí reemplaza
+        la copia guardada. Así el celu nunca queda con una mezcla de
+        archivos viejos y nuevos.
+     4. Le avisa a la página, y la próxima vez que abras la app ya usás
+        la versión nueva.
 
-   Ya no hace falta cambiar ningún número de versión: con subir los
+   No hace falta cambiar ningún número de versión: con subir los
    archivos nuevos a GitHub alcanza.
    ========================================================= */
 
-const CACHE = 'mis-habitos';
+const CACHE = 'mis-habitos-archivos';
 
 // Todo lo que la app necesita para funcionar sin conexión
 const ARCHIVOS = [
@@ -36,6 +37,7 @@ const ARCHIVOS = [
 ];
 
 // 1. INSTALACIÓN: descarga y guarda todos los archivos
+//    (addAll es "todo o nada": si falla uno, no guarda ninguno)
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
     caches.open(CACHE).then(cache =>
@@ -46,7 +48,7 @@ self.addEventListener('install', (evento) => {
   self.skipWaiting(); // que este service worker se active sin esperar
 });
 
-// 2. ACTIVACIÓN: borra cachés de versiones anteriores (por ejemplo "mis-habitos-v1")
+// 2. ACTIVACIÓN: borra cachés de versiones anteriores
 self.addEventListener('activate', (evento) => {
   evento.waitUntil(
     caches.keys()
@@ -57,16 +59,59 @@ self.addEventListener('activate', (evento) => {
   );
 });
 
-// Le avisa a la app (todas las ventanas abiertas) que hay archivos nuevos
-async function avisarVersionNueva() {
+// Le manda un mensaje a la app (a todas las ventanas abiertas)
+async function avisarALaApp(tipo) {
   const ventanas = await self.clients.matchAll({ type: 'window' });
-  ventanas.forEach(ventana => ventana.postMessage({ tipo: 'version-nueva' }));
+  ventanas.forEach(ventana => ventana.postMessage({ tipo }));
 }
 
-// Identificador de una versión de un archivo, según lo que manda el servidor
-const huella = (respuesta) => respuesta.headers.get('etag') || respuesta.headers.get('last-modified');
+// Identificador de una versión de un archivo. GitHub manda un "etag" que cambia
+// cuando cambia el archivo; si no viene, comparamos el contenido.
+async function huella(respuesta) {
+  return respuesta.headers.get('etag')
+      || respuesta.headers.get('last-modified')
+      || await respuesta.clone().text();
+}
 
-// 3. CADA PEDIDO
+// 3. REVISAR SI HAY VERSIÓN NUEVA Y BAJAR TODO JUNTO
+//    forzar = true: guarda todo aunque no haya cambiado nada (lo pide la app si hubo un error)
+let revisando = null; // para no revisar dos veces al mismo tiempo
+
+function revisarActualizacion(forzar = false) {
+  if (revisando) return revisando;
+
+  revisando = (async () => {
+    // a) Bajamos todos los archivos a la vez. Si falla alguno (por ejemplo,
+    //    sin internet), Promise.all falla y no tocamos nada.
+    const nuevas = await Promise.all(ARCHIVOS.map(async (url) => {
+      const respuesta = await fetch(new Request(url, { cache: 'no-cache' }));
+      if (!respuesta.ok) throw new Error(`No se pudo bajar ${url}`);
+      return [url, respuesta];
+    }));
+
+    // b) ¿Cambió alguno respecto de lo guardado?
+    const cache = await caches.open(CACHE);
+    let cambioAlguno = forzar;
+    for (const [url, respuesta] of nuevas) {
+      const guardada = await cache.match(url);
+      if (!guardada || await huella(guardada) !== await huella(respuesta)) {
+        cambioAlguno = true;
+        break;
+      }
+    }
+    if (!cambioAlguno) return;
+
+    // c) Reemplazamos TODOS juntos
+    await Promise.all(nuevas.map(([url, respuesta]) => cache.put(url, respuesta)));
+    await avisarALaApp(forzar ? 'resincronizado' : 'version-nueva');
+  })()
+    .catch(() => { /* sin internet o servidor caído: seguimos con lo guardado */ })
+    .finally(() => { revisando = null; });
+
+  return revisando;
+}
+
+// 4. CADA PEDIDO
 self.addEventListener('fetch', (evento) => {
   const pedido = evento.request;
 
@@ -74,26 +119,22 @@ self.addEventListener('fetch', (evento) => {
   // Lo demás (por ejemplo, el link a Google Calendar) pasa de largo.
   if (pedido.method !== 'GET' || new URL(pedido.url).origin !== self.location.origin) return;
 
-  evento.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    const guardada = await cache.match(pedido, { ignoreSearch: true });
+  // Cuando se abre la app (se pide la página), revisamos por detrás si hay versión nueva
+  if (pedido.mode === 'navigate') {
+    evento.waitUntil(revisarActualizacion());
+  }
 
-    // Pedimos la versión de internet (sin esperar a que llegue para responder)
-    const deInternet = fetch(pedido, { cache: 'no-cache' })
-      .then(async (respuesta) => {
-        if (respuesta.ok) {
-          const cambio = guardada && huella(guardada) && huella(guardada) !== huella(respuesta);
-          await cache.put(pedido, respuesta.clone());
-          if (cambio) avisarVersionNueva();
-        }
-        return respuesta;
-      })
-      .catch(() => guardada); // sin internet: nos quedamos con lo guardado
+  // Respondemos con lo guardado; si no está guardado, lo buscamos en internet
+  evento.respondWith(
+    caches.match(pedido, { ignoreSearch: true })
+      .then(guardada => guardada || fetch(pedido))
+  );
+});
 
-    // Le pedimos al navegador que no corte la descarga aunque ya respondimos
-    evento.waitUntil(deInternet);
-
-    // Si hay copia guardada, la usamos ya mismo; si no, esperamos a internet
-    return guardada || deInternet;
-  })());
+// 5. MENSAJES DE LA APP
+//    Si la app tuvo un error, nos pide que volvamos a bajar todo junto.
+self.addEventListener('message', (evento) => {
+  if (evento.data && evento.data.tipo === 'resincronizar') {
+    evento.waitUntil(revisarActualizacion(true));
+  }
 });
